@@ -755,6 +755,12 @@ const aiNote = () => aiReady() ? '' : `<div class="note">${ICON.info}<span><b>AI
 
 function keyZone(num){
   const kk = keyKind();
+  if (num !== 1 && (S.settings.key || ENV.serverAI)){
+    const nm = S.settings.key ? (({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'API')+' key' : 'Team key';
+    return `<div class="row" style="justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card)">
+      <span class="row"><span class="chip role-champ">✓ ${esc(nm)} connected</span><span class="small muted">Saved in Step 1. No need to add it again.</span></span>
+      <button class="btn-link" data-go="business">Change key</button></div>`;
+  }
   const name = ({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'API';
   const status = S.settings.key
     ? `<span class="chip role-champ">✓ ${esc(name)} key saved</span> <span class="small muted">${['claude','gemini'].includes(kk)?'Builds playbooks, reads results, writes messages and searches the web.':'Builds playbooks, reads results and writes messages. Search uses free sources.'}</span>`
