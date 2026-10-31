@@ -290,6 +290,13 @@ ol.clean{margin:0; padding-left:18px; display:grid; gap:6px}
 .detail{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; box-shadow:var(--shadow)}
 .tier + .tier{margin-top:6px}
 .pick{grid-template-columns:auto 1fr auto}
+/* ---------- Geography control + signal generator ---------- */
+.seg-ctl{display:inline-flex; flex-wrap:wrap; gap:4px; background:var(--card); border:1.5px solid var(--in-border); border-radius:11px; padding:4px}
+.seg-ctl button{border:none; background:none; padding:8px 14px; border-radius:8px; font-weight:650; font-size:13.5px; color:var(--body); cursor:pointer}
+.seg-ctl button:hover{background:var(--purple-soft)}
+.seg-ctl button.on{background:var(--purple); color:#fff}
+.genbar{display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px; background:var(--card); border:1px solid var(--in-border); border-radius:10px}
+.genbar input{flex:1 1 260px; width:auto}
 </style>
 
 <header class="chrome">
@@ -542,7 +549,7 @@ const blank = () => ({
   accounts:JSON.parse(JSON.stringify(DEMO.accounts)), rejected:JSON.parse(JSON.stringify(DEMO.rejected)),
   people:JSON.parse(JSON.stringify(DEMO.people)), outreach:JSON.parse(JSON.stringify(DEMO.outreach)),
   view:'setup', sel:'emergent', personSel:'emergent::Mukund Jha', filter:'all', msgTab:'linkedin_invite',
-  settings:{provider:'auto', key:'', model:'', sender:'Pravarsha, ResearchMind', region:'India + global'},
+  settings:{provider:'auto', key:'', model:'', sender:'Pravarsha, ResearchMind', region:'India + Global', geo:'india+global', geoOther:''},
   runAt:DEMO.at, source:'demo'
 });
 let S;
@@ -647,6 +654,18 @@ function guessKind(key){
   if (/^sk-or-/.test(key)) return 'openrouter'; if (/^sk-/.test(key)) return 'openai'; return 'auto';
 }
 
+/* ---------- Geography ---------- */
+const GEOS = [['india+global','India + Global'],['india','India only'],['global','Global'],['other','Other…']];
+function geoLabel(){ const g = S.settings.geo || 'india+global'; return g==='other' ? (S.settings.geoOther||'Other') : (GEOS.find(x=>x[0]===g)||GEOS[0])[1]; }
+function geoQueries(sig){
+  const q = sig.query, g = S.settings.geo || 'india+global';
+  if (!/news|jobs|web|events|tenders|posts/.test(sig.src)) return [q];   // Reddit, HN, GitHub, reviews cannot be filtered by place
+  if (g==='india') return [q+' India'];
+  if (g==='global') return [q];
+  if (g==='other') return S.settings.geoOther ? [q+' '+S.settings.geoOther] : [q];
+  return [q+' India', q];
+}
+
 /* ---------- Prompts ---------- */
 const P = {
   profile:(input, site) => `Build a buying-signal playbook for this business so a sales team can find buyers BEFORE they fill a form.
@@ -671,7 +690,7 @@ Competitors (never buyers): ${b.competitors.join(', ')}
 Signal we are hunting: ${sig.id} "${sig.name}" — ${sig.why}
 Looks like this but is noise: ${sig.noise}
 Global noise rules: ${S.noise.join('; ')}
-Region focus: ${S.settings.region || 'any'}. Today is ${TODAY.toISOString().slice(0,10)}.
+Geography: ${geoLabel()}. Today is ${TODAY.toISOString().slice(0,10)}.
 
 Evidence (numbered search results):
 ${results.map((r,i) => `[${i+1}] ${r.title}\nURL: ${r.url}\nDate: ${r.date || 'unknown'}\n${(r.content||'').slice(0,450)}`).join('\n\n')}
@@ -704,6 +723,17 @@ Return JSON only:
  "messages":{"linkedin_invite":"","linkedin_followup":"","email_subject":"","email_body":"","community":""},
  "points":["3 talking points"],"avoid":["3 things not to say"]}
 Sequence: 4-6 touches over ~2 weeks, mixing channels.`,
+
+  newSignals:(b, existing, focus, replace) => `You design buying-signal playbooks. Business: ${b.name}: ${b.sells}
+Trigger moment: ${b.trigger}
+Buyer segments (use these ids): ${b.segments.map(g=>`${g.id} = ${g.name} (buyer: ${g.buyer}; user: ${g.user})`).join('; ')}
+Geography: ${geoLabel()}. Today is ${TODAY.toISOString().slice(0,10)}.
+${replace ? 'Write a complete fresh set of 10-14 signals.' : 'Signals we already watch (do NOT repeat or rephrase these):\n' + existing.map(s=>'- '+s.name).join('\n') + '\nSuggest 4-6 NEW signals, especially early or overlooked ones nobody else watches.'}
+${focus ? 'Focus on: ' + focus : ''}
+Remember: the person who uses the product is often not the buyer. Prefer signals that appear BEFORE a purchase decision and can be found with a web search.
+Allowed sources (exact keys): reddit, hn, jobs, reviews, news, posts, events, github, tenders, web.
+Return JSON only: {"signals":[{"tier":"A|B|C","src":"<source key>","segs":["segment ids"],"name":"short name","why":"why this means a buyer is ready","query":"web search query, 3-9 words, may use OR and quotes","lead":"e.g. 4–12 wks","earliness":1,"intent":1,"noise":"what looks like this signal but is not a buyer"}]}
+earliness and intent are 1-5. Tier A = names the need outright.`,
 
   score:(text, b) => `A salesperson for ${b.name} (${b.one_liner}) found this possible buying signal:
 """${text.slice(0, 6000)}"""
@@ -801,7 +831,15 @@ find(){
   const tiers = [['A','Strong','They name the need'],['B','Good','Something changed that creates the need'],['C','Background','Context, watch only']];
   return phead(2, 'Find buyers', 'Tick the signals to hunt, press Run, and watch buyers appear. Each signal is a public moment that shows someone is about to need '+esc(S.business.name)+'.') +
   aiLine() +
+  zone('in', 'Where to look', 'Job boards, news, events and tenders are searched for this place. Reddit, GitHub and reviews are searched worldwide.', `
+    <div class="seg-ctl" role="radiogroup" aria-label="Geography">${GEOS.map(([k,l])=>`<button role="radio" aria-checked="${(S.settings.geo||'india+global')===k}" class="${(S.settings.geo||'india+global')===k?'on':''}" data-act="geo" data-geo="${k}" ${busy?'disabled':''}>${l}</button>`).join('')}</div>
+    ${(S.settings.geo==='other')?`<div class="row" style="flex-wrap:nowrap"><input id="geoOther" type="text" value="${esc(S.settings.geoOther)}" placeholder="Country, city or region, e.g. Singapore, UK, Southeast Asia" aria-label="Other geography"><button class="btn btn-outline" data-act="geoSave">Use this place</button></div>`:''}`) +
   zone('in', 'Pick signals', '', `
+    <div class="genbar"><span class="small" style="font-weight:650;color:var(--ink)">✨ Update signals with AI</span>
+      <input id="genFocus" type="text" placeholder="Optional focus, e.g. universities, market research agencies, Southeast Asia" aria-label="Focus for new signals">
+      <button class="btn btn-outline btn-sm" data-act="genMore" ${aiReady()&&!busy?'':'disabled'}>Suggest new signals</button>
+      <button class="btn btn-ghost btn-sm" data-act="genAll" ${aiReady()&&!busy?'':'disabled'}>Regenerate all</button>
+      <span id="genStatus" class="status" style="flex-basis:100%">${aiReady()?'"Suggest" adds new ideas next to your list. "Regenerate" replaces the built-in signals but keeps the ones you added.':'Connect AI in Set up to generate signals.'}</span></div>
     <div class="row"><button class="btn btn-ghost btn-sm" data-act="pickA">Strong only</button><button class="btn btn-ghost btn-sm" data-act="pickAll">All</button><button class="btn btn-ghost btn-sm" data-act="pickNone">None</button>
       <span class="small muted" style="margin-left:auto"><b style="color:var(--ink)">${on.length}</b> of ${S.signals.length} picked</span></div>
     ${tiers.map(([t,h,d])=>{ const list = S.signals.map((s,i)=>({s,i})).filter(x=>x.s.tier===t); if (!list.length) return '';
@@ -810,7 +848,7 @@ find(){
         <input type="checkbox" id="pk${i}" data-act="pick" data-i="${i}" ${s.on?'checked':''} ${busy?'disabled':''}>
         <label for="pk${i}" style="min-width:0;cursor:pointer"><b>${esc(s.name)}</b>
           <span class="small" style="display:block;margin-top:2px">${esc(s.why)}</span>
-          <span class="row" style="gap:4px;margin-top:6px"><span class="chip c-src">${esc(SOURCES[s.src]||s.src)}</span>${(s.segs||[]).slice(0,2).map(segChip2).join('')}${(s.segs||[]).length>2?`<span class="small muted">+${s.segs.length-2}</span>`:''}${s.custom?'<span class="chip c-b">Yours</span>':''}</span></label>
+          <span class="row" style="gap:4px;margin-top:6px">${s.fresh?'<span class="chip c-red">New</span>':''}<span class="chip c-src">${esc(SOURCES[s.src]||s.src)}</span>${(s.segs||[]).slice(0,2).map(segChip2).join('')}${(s.segs||[]).length>2?`<span class="small muted">+${s.segs.length-2}</span>`:''}${s.custom?'<span class="chip c-b">Yours</span>':''}</span></label>
         ${s.custom?`<button class="btn-link small" data-act="delSig" data-i="${i}">Remove</button>`:`<button class="btn-link small" data-act="editSig" data-i="${i}" aria-label="Fine-tune ${esc(s.name)}">Edit</button>`}
         ${S.editSig===i?`<div class="adv" style="grid-column:1/-1">
           <div class="field"><label>How clearly it shows need</label>${stepper(i,'intent',s.intent)}</div>
@@ -826,8 +864,7 @@ find(){
       <div class="field"><label for="cTier">Strength</label><select id="cTier" style="width:100%"><option value="A">Strong: names the need</option><option value="B" selected>Good: creates the need</option><option value="C">Background</option></select></div>
       <div class="field"><label>&nbsp;</label><button class="btn btn-outline" data-act="addSig" ${busy?'disabled':''}>Add and pick it</button></div>
     </div><span id="cStatus" class="status"></span>`, custom.length===0 && false)}
-    ${fold('Search options', esc((S.settings.region||'global')+' · '+({auto:'free + AI backup',ai:'AI search only',free:'free only'})[S.settings.searchMode||'auto']), `<div class="grid2">
-      <div class="field"><label for="region">Focus region</label><input id="region" type="text" value="${esc(S.settings.region)}" data-set="region"><span class="hint">Write "global" for no focus.</span></div>
+    ${fold('Search options', esc(({auto:'free + AI backup',ai:'AI search only',free:'free only'})[S.settings.searchMode||'auto']), `<div class="grid2">
       <div class="field"><label for="sSearch2">Search with</label><select id="sSearch2" style="width:100%">
         <option value="auto" ${(S.settings.searchMode||'auto')==='auto'?'selected':''}>Free search, AI search fills gaps</option>
         <option value="ai" ${S.settings.searchMode==='ai'?'selected':''}>AI web search only (most reliable)</option>
@@ -845,7 +882,7 @@ find(){
         <div><span class="label">Tender or job post?</span><p class="small" style="margin-top:6px">A tender for research services buys an agency, so it is off by default. A tender for analysis software is a buyer with budget, so it scores high. A job post that mentions synthesis is a team with a decision 1–3 months away.</p></div></div></div>`)}
   `) +
   `<div class="runbar">
-    <div><b style="color:var(--ink);font-size:15px">${busy?'Scouting '+RUN.rows.length+' signals…':on.length+' signal'+(on.length===1?'':'s')+' picked'+(custom.length?' ('+custom.length+' yours)':'')}</b>
+    <div><b style="color:var(--ink);font-size:15px">${busy?'Scouting '+RUN.rows.length+' signals in '+esc(geoLabel())+'…':on.length+' signal'+(on.length===1?'':'s')+' · '+esc(geoLabel())}</b>
       <div class="small muted">${busy?'Buyers appear below as each signal finishes.':esc(why)}</div></div>
     ${busy?`<button class="btn btn-ghost btn-lg" data-act="stopScout">Stop</button>`:`<button class="btn btn-primary btn-lg" data-act="scout" ${canRun?'':'disabled'}>▶ Run</button>`}
   </div>` +
@@ -1067,11 +1104,10 @@ async function runScout(){
       const sig = queue.shift();
       setRow(sig.id, {state:'busy', note:'searching '+(SOURCES[sig.src]||sig.src)});
       try {
-        const reg = S.settings.region && !/global/i.test(S.settings.region) ? S.settings.region.split('+')[0].trim() : '';
-        const q = reg && /news|jobs|web|events|tenders/.test(sig.src) ? sig.query+' '+reg : sig.query;
-        let res = await search(q, sig.src);
+        let res = [];
+        for (const q of geoQueries(sig)){ const seen = new Set(res.map(r=>r.url)); res = res.concat((await search(q, sig.src)).filter(r=>!seen.has(r.url))); }
         if (res.length < 3 && sig.src !== 'web') res = res.concat(await search(sig.query, 'web'));
-        res = res.slice(0, 14);
+        res = res.slice(0, 16);
         log(`${sig.id}: ${res.length} results from ${SOURCES[sig.src]||sig.src}`);
         if (RUN.stop) break;
         if (!res.length){ setRow(sig.id, {state:'ok', note:'no results found', leads:0}); continue; }
@@ -1167,6 +1203,29 @@ async function scorePaste(){
   } catch(e){ st.textContent = e.message||String(e); }
 }
 
+async function genSignals(replace){
+  const st = $('#genStatus'), focus = ($('#genFocus')||{}).value || '';
+  st.className = 'status busy'; st.textContent = replace ? 'Writing a fresh set of signals…' : 'Looking for signals you are not watching yet…';
+  try {
+    const out = await ask(P.newSignals(S.business, S.signals, focus.trim(), replace), 'complex');
+    const list = (out.signals||[]).filter(x => x && x.name && x.query);
+    if (!list.length) throw new Error('No signals came back. Try again, or add a focus.');
+    S.signals.forEach(x => delete x.fresh);
+    const mk = (x, id) => ({id, tier:['A','B','C'].includes(x.tier)?x.tier:'B', on:true, fresh:true, src:SOURCES[x.src]?x.src:'web',
+      segs:(Array.isArray(x.segs)?x.segs:[]).filter(id2=>segById(id2)), name:x.name, why:x.why||'', query:x.query, lead:x.lead||'',
+      earliness:Math.max(1,Math.min(5,+x.earliness||3)), intent:Math.max(1,Math.min(5,+x.intent||3)), noise:x.noise||''});
+    if (replace){
+      const mine = S.signals.filter(x=>x.custom);
+      S.signals = list.map((x,i)=>mk(x,'S'+(i+1))).concat(mine);
+    } else {
+      const have = new Set(S.signals.map(x=>x.name.toLowerCase()));
+      let n = S.signals.filter(x=>/^N\d+$/.test(x.id)).length;
+      list.filter(x=>!have.has(String(x.name).toLowerCase())).forEach(x => S.signals.push(mk(x, 'N'+(++n))));
+    }
+    render(); toast(replace ? 'Fresh signals ready' : list.length+' new signals added and picked');
+  } catch(e){ st.className='status'; st.textContent = e.message || String(e); }
+}
+
 async function buildProfile(){
   const v = ($('#bizIn')||{}).value||''; const st = $('#bizStatus');
   if (!v.trim()){ st.textContent='Type a website or product first.'; return; }
@@ -1234,6 +1293,10 @@ document.addEventListener('click', e => {
   }
   if (a==='editKey'){ S.editKey = true; render(); setTimeout(()=>{const k=$('#keyIn'); if(k) k.focus();},0); }
   if (a==='cancelKey'){ S.editKey = false; render(); }
+  if (a==='geo'){ S.settings.geo = t.dataset.geo; S.settings.region = geoLabel(); render(); }
+  if (a==='geoSave'){ S.settings.geoOther = $('#geoOther').value.trim(); S.settings.region = geoLabel(); render(); toast('Searching in '+geoLabel()); }
+  if (a==='genMore') genSignals(false);
+  if (a==='genAll') genSignals(true);
   if (a==='editSig'){ S.editSig = S.editSig===i ? null : i; render(); }
   if (a==='editSender') settingsModal();
   if (a==='saveKey'){ S.editKey = false; const k=$('#keyIn').value.trim(); if(!k){ toast('Paste a key first'); return; } S.settings.key=k; S.settings.provider=guessKind(k); updatePill(); render(); toast(ENV.backend?'Key saved':'Key saved. It is used on your deployed site.'); }
