@@ -753,18 +753,33 @@ const valueDots = v => `<span class="value" aria-label="Value ${v} of 5">${[1,2,
 const heatBox = v => `<span class="heat h-${band(v)}">${v}<small>${BAND_LABEL[band(v)]}</small></span>`;
 const aiNote = () => aiReady() ? '' : `<div class="note">${ICON.info}<span><b>AI is not connected.</b> ${ENV.backend?'Open Settings and paste an API key.':'In this preview AI runs through Claude once you allow it; in the deployed app, add your key in Settings.'}</span></div>`;
 
+function keyZone(num){
+  const kk = keyKind();
+  const name = ({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'API';
+  const status = S.settings.key
+    ? `<span class="chip role-champ">✓ ${esc(name)} key saved</span> <span class="small muted">${['claude','gemini'].includes(kk)?'Builds playbooks, reads results, writes messages and searches the web.':'Builds playbooks, reads results and writes messages. Search uses free sources.'}</span>`
+    : ENV.serverAI ? `<span class="chip role-champ">✓ Team key set on the server</span> <span class="small muted">You can skip this. Paste your own key only to use your account instead.</span>`
+    : ENV.sample ? `<span class="chip c-b">Using Claude in this preview</span> <span class="small muted">Your key is used on the deployed site, where live search works.</span>`
+    : `<span class="small muted">No key yet. Get a free Gemini key at aistudio.google.com or a Claude key at console.anthropic.com.</span>`;
+  return zone('in', (num?num+' · ':'')+'Connect your API key', 'Paste it once. It stays in this browser and is used on every step: building playbooks, scouting, finding people and writing messages.', `
+    <div class="row" style="flex-wrap:nowrap"><input id="keyIn" type="password" autocomplete="off" placeholder="AIza… (Gemini, free) or sk-ant-… (Claude)" value="${esc(S.settings.key)}" aria-label="API key">
+      <button class="btn btn-primary" data-act="saveKey">Save key</button>${S.settings.key?'<button class="btn btn-ghost" data-act="clearKey">Remove</button>':''}</div>
+    <div class="row">${status}</div>`);
+}
+
 const VIEWS = {
 business(){
   const b = S.business;
-  return phead(1, 'Who buys '+esc(b.name)+'?', 'Start here. Confirm what you sell. The platform works out who holds the budget, who only uses the product, and how to sell to each group.') +
-  zone('in', 'What are you selling?', 'ResearchMind is loaded. To scout for a different product, describe it or paste its website.', `
+  return phead(1, 'Who buys '+esc(b.name)+'?', 'Start here. Connect your API key, then confirm what you sell. The platform works out who holds the budget, who only uses the product, and how to sell to each group.') +
+  keyZone(1) +
+  zone('in', '2 · What are you selling?', 'ResearchMind is loaded. To scout for a different product, describe it or paste its website.', `
     <div class="card-in prod"><span class="mark">${esc(initials(b.name))}</span>
       <div style="min-width:0"><b style="color:var(--ink);font-size:15px">${esc(b.name)}</b><div class="small">${esc(b.one_liner)}</div></div>
       <span class="chip c-b">Active</span></div>
     <div class="field"><label for="bizIn">Switch to another product (optional)</label>
       <div class="row" style="flex-wrap:nowrap"><input id="bizIn" type="text" placeholder="Website or one line, e.g. 'drone docking station software'">
       <button class="btn btn-outline" data-act="buildProfile" ${aiReady()?'':'disabled'}>Build playbook</button></div>
-      <span class="hint">This replaces the ResearchMind playbook. You can restore it from Settings.</span></div>
+      <span class="hint">${aiReady()?'This replaces the ResearchMind playbook. You can restore it from Settings.':'Save your API key above to build a playbook for another product.'}</span></div>
     <div id="bizStatus" class="status"></div>`) +
   zone('out', 'The buyer map', 'Generated from the product and its research. The person who uses the product is often not the person who pays.', `
     <div class="callout"><span class="label" style="color:var(--purple-ink)">A buyer is ready when</span><div style="margin-top:4px">${esc(b.trigger)}</div></div>
@@ -822,9 +837,6 @@ scout(){
   const live = ENV.backend, busy = RUN.busy;
   const on = S.signals.filter(s=>s.on), custom = S.signals.filter(s=>s.custom);
   const kk = keyKind();
-  const keyLine = S.settings.key
-    ? `<span class="chip role-champ">${esc(({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'Key')} key saved</span> <span class="small muted">${['claude','gemini'].includes(kk)?'AI reading and AI web search are on.':'AI reading is on. Free web search is used for searching.'}</span>`
-    : (ENV.serverAI ? `<span class="chip role-champ">Team key set on the server</span>` : `<span class="small muted">No key yet. A Claude key gives the best search; a Gemini key is free.</span>`);
   const canRun = live && aiReady() && on.length && !busy;
   const why = !live ? 'Live scouting runs on your deployed site. This preview is sandboxed from the web.' : !aiReady() ? 'Add your API key above to run.' : !on.length ? 'Pick at least one signal.' : '';
   return phead(3, 'Find buyers', 'Pick the signals to hunt, add your own if you like, then run. Buyers appear below the moment each signal finishes.') +
@@ -848,10 +860,8 @@ scout(){
       <div class="field"><label>&nbsp;</label><button class="btn btn-outline" data-act="addSig" ${busy?'disabled':''}>+ Add signal</button></div>
     </div><span id="cStatus" class="status"></span>`) +
 
-  zone('in', '3 · Connect your API key', 'Paste it once. It stays in this browser and is only sent to the AI provider through your site.', `
-    <div class="row" style="flex-wrap:nowrap"><input id="keyIn" type="password" autocomplete="off" placeholder="sk-ant-… (Claude) or AIza… (Gemini)" value="${esc(S.settings.key)}">
-      <button class="btn btn-outline" data-act="saveKey">Save key</button>${S.settings.key?'<button class="btn btn-ghost" data-act="clearKey">Remove</button>':''}</div>
-    <div class="row">${keyLine}</div>
+  keyZone(3) +
+  zone('in', '4 · Search settings', '', `
     <div class="grid2"><div class="field"><label for="region">Focus region</label><input id="region" type="text" value="${esc(S.settings.region)}" data-set="region"><span class="hint">Write "global" for no focus.</span></div>
       <div class="field"><label for="sSearch2">Search with</label><select id="sSearch2" style="width:100%">
         <option value="auto" ${(S.settings.searchMode||'auto')==='auto'?'selected':''}>Free search, AI search fills gaps</option>

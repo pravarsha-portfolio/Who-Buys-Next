@@ -72,4 +72,3 @@ After editing `src/app.html`, run `./build.sh`.
 ## The verified sample run
 
 The app opens on a real run checked on 31 Oct 2026, with every claim linked: Emergent Labs (Series C + a UX Researcher JD that asks for transcript-analysis tooling), Zinnia, 6sense (Dovetail in the stack), TDU (qualitative research workshop for PhD students) and DTU (January 2027 PhD intake). Rejected examples show the noise filter at work: a stale Atlassian posting, Cartesia's ML "research operations" role, and competitor-written "alternatives" posts.
-
