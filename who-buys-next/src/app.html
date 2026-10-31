@@ -562,6 +562,10 @@ const blank = () => ({
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || blank(); } catch(e){ S = blank(); }
 if (!S.weights || !S.signals) S = blank();
+/* Every open or refresh starts on ResearchMind, at Set up. Your API key and settings are kept.
+   If another product was loaded last time, ResearchMind's playbook and verified sample run come back. */
+if (S.business.name !== RM_BUSINESS.name){ const keep = S.settings; S = blank(); S.settings = keep; }
+S.view = 'setup';
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} };
 
 const ENV = { backend:false, serverAI:false, serverSearch:false, sample:null, checked:false };
