@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/ai.js": { "maxDuration": 120 },
+    "api/search.js": { "maxDuration": 20 },
+    "api/page.js": { "maxDuration": 20 }
+  }
+}
