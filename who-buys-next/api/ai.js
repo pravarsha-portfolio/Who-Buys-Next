@@ -10,7 +10,7 @@ const ENV = {
   groq: 'GROQ_API_KEY', openrouter: 'OPENROUTER_API_KEY'
 };
 const DEFAULT_MODEL = {
-  claude: 'claude-sonnet-5-5', gemini: 'gemini-2.5-flash', openai: 'gpt-4.1-mini',
+  claude: 'claude-sonnet-5-5', gemini: 'gemini-flash-latest', openai: 'gpt-4.1-mini',
   groq: 'llama-3.3-70b-versatile', openrouter: 'anthropic/claude-sonnet-4.5'
 };
 const SYSTEM = 'You are a careful B2B sales research analyst. You only state facts found in the evidence you are given. When asked for JSON you reply with JSON only, no prose and no code fences.';
@@ -61,9 +61,15 @@ export default async function handler(req, res) {
   let provider = b.provider, key = String(b.key || '').trim();
   if (!key) { provider = pickProvider(provider); key = provider ? process.env[ENV[provider]] : ''; }
   if (!provider || !key) return res.status(400).json({ error: 'No AI key. Add one in Settings, or set GEMINI_API_KEY / ANTHROPIC_API_KEY on the server.' });
-  const model = b.model || DEFAULT_MODEL[provider];
+  const FALLBACK = { claude: 'claude-sonnet-4-5', gemini: 'gemini-2.5-flash' };
+  let model = b.model || DEFAULT_MODEL[provider];
   try {
-    const text = await call(provider, key, model, prompt);
+    let text;
+    try { text = await call(provider, key, model, prompt); }
+    catch (e) {
+      if (b.model || !FALLBACK[provider] || !/not found|not_found|404|does not exist|unsupported/i.test(String(e.message))) throw e;
+      model = FALLBACK[provider]; text = await call(provider, key, model, prompt);
+    }
     res.status(200).json({ text, provider, model });
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });

@@ -649,20 +649,28 @@ const aiSearchReady = () => ENV.backend && (['claude','gemini'].includes(keyKind
 async function freeSearch(q, src){
   try { const r = await fetch(`api/search?src=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); if (!r.ok) return []; return (await r.json()).results || []; } catch(e){ return []; }
 }
+const SEARCH_ERR = {};
 async function aiSearch(q, src){
   try {
     const kk = keyKind();
     const r = await fetch('api/websearch', {method:'POST', headers:{'content-type':'application/json'},
       body:JSON.stringify({q, src, provider:['claude','gemini'].includes(kk)?kk:undefined, key:['claude','gemini'].includes(kk)?S.settings.key:undefined})});
-    const j = await r.json(); return j.results || [];
-  } catch(e){ return []; }
+    const j = await r.json();
+    if (j.error){ SEARCH_ERR.ai = j.error; if (typeof log==='function' && RUN.busy) log('AI web search: '+j.error); }
+    return j.results || [];
+  } catch(e){ SEARCH_ERR.ai = String(e.message||e); return []; }
 }
+/* Free search and your key's web search run side by side. Free search engines often block cloud servers,
+   so relying on them alone returns nothing for many queries. */
 async function search(q, src){
   const mode = S.settings.searchMode || 'auto';
-  if (mode === 'ai' && aiSearchReady()) return aiSearch(q, src);
-  let res = await freeSearch(q, src);
-  if (mode !== 'free' && res.length < 3 && aiSearchReady()){ const more = await aiSearch(q, src); const seen = new Set(res.map(r=>r.url)); res = res.concat(more.filter(r=>!seen.has(r.url))); }
-  return res;
+  const useAI = mode !== 'free' && aiSearchReady();
+  const useFree = mode !== 'ai' || !useAI;
+  const [free, ai] = await Promise.all([useFree ? freeSearch(q, src) : [], useAI ? aiSearch(q, src) : []]);
+  const seen = new Set(), out = [];
+  for (const r of [...ai, ...free]) if (r && r.url && !seen.has(r.url)){ seen.add(r.url); out.push(r); }
+  if (typeof log==='function' && RUN.busy) log(`  "${q.slice(0,60)}" → ${free.length} free + ${ai.length} AI results`);
+  return out;
 }
 async function readPage(url){
   try { const r = await fetch('api/page?url=' + encodeURIComponent(url)); return await r.json(); } catch(e){ return {text:'', peopleLinks:[]}; }
@@ -686,20 +694,34 @@ function geoQueries(sig){
 
 /* ---------- Prompts ---------- */
 const P = {
-  profile:(input, site) => `Build a buying-signal playbook for this business so a sales team can find buyers BEFORE they fill a form.
+  profile:(input, site) => `Build a buying-signal playbook so a sales team can find buyers BEFORE they fill a form.
 
-Business input: ${input}
-${site ? 'Text from its website:\n' + site.slice(0, 9000) : ''}
+Business: ${input}
+${site ? 'Research about it:\n' + site.slice(0, 12000) : ''}
+Geography to sell in: ${geoLabel()}. Today is ${TODAY.toISOString().slice(0,10)}.
 
-Method: 1) what it sells and to whom, 2) the trigger moment when a buyer is ready, 3) walk backwards: which public events happen before that moment, 4) where each event shows up first.
-Allowed sources (use these exact keys): reddit, hn, jobs, reviews, news, posts, events, github, tenders, web.
+Think like this example. A company sells software that runs drone docking stations. Anyone who just BOUGHT drone docks now needs that software. So the signals are public traces of that purchase or plan: a tender for drone docks, a job post for a drone programme manager, a regulator approving beyond-visual-line-of-sight flights, a press release about a drone-in-a-box rollout. Each one names a specific ORGANISATION and can be found with a web search.
+
+Method:
+1. What exactly it sells, and who PAYS (budget holder), versus who USES it daily.
+2. The trigger moment: the event after which a buyer needs this within months.
+3. Walk backwards: concrete public events that happen before or around that moment. Each must name an organisation (a company, university, agency, government body), not an individual opinion.
+4. Where each event shows up first, and a search query that would find it.
+
+Rules for good signals:
+- Specific to this business. "Company raised funding" alone is weak; "Company raised funding AND is hiring a [role that uses this product]" is strong.
+- Searchable: the query is plain words a search engine understands, 3-8 words, no more than one OR. Include the kind of document (e.g. "tender", "hiring", "launches", "announces", "RFP").
+- Mix sources: at least 3 job-board signals, 3 news signals, plus tenders, events, reviews or communities where they fit.
+- Tier A only if the event names the need outright.
+
+Allowed sources (exact keys): jobs, news, tenders, events, reviews, reddit, hn, github, posts, web.
 Return JSON only:
 {"name":"","url":"","one_liner":"","sells":"","trigger":"","pains":["4-6 short pains"],
- "segments":[{"id":"short-id","name":"","who":"which organisations or people","buyer":"roles that hold budget (NOT the day-to-day user)","user":"who uses it daily","motion":"how to sell to them","value":1}],
- "competitors":[""],
- "signals":[{"id":"S1","tier":"A|B|C","src":"<source key>","name":"short name","why":"why this means a buyer is ready","query":"web search query, 3-9 words, may use OR and quotes","lead":"e.g. 4–12 wks","earliness":1,"intent":1,"noise":"what looks like this signal but is not a buyer"}],
- "noise":["5 rules that reject false positives"]}
-Give 4-7 segments (value 1-5 = how attractive). Each signal also has "segs":[segment ids]. Remember: the person who uses a product is often not the buyer. Give 10-14 signals ordered from earliest/highest intent to latest. earliness and intent are 1-5. Tier A = intent 5.`,
+ "segments":[{"id":"short-id","name":"","who":"which organisations","buyer":"roles that hold budget, comma separated","user":"who uses it daily","motion":"how to sell to them","value":1}],
+ "competitors":["direct competitors, never buyers"],
+ "signals":[{"id":"S1","tier":"A|B|C","src":"<source key>","segs":["segment ids"],"name":"short name","why":"why this means a buyer is ready","query":"search query","lead":"e.g. 4–12 wks","earliness":1,"intent":1,"noise":"what looks like this but is not a buyer"}],
+ "noise":["5 rules that reject false positives, including vendors and competitors"]}
+Give 4-7 segments (value 1-5 = how attractive). Give 12 signals, strongest and earliest first. earliness and intent are 1-5.`,
 
   extract:(sig, results, b) => `You are scouting buyers for ${b.name}: ${b.sells}
 Buyer segments: ${b.segments.map(g => `${g.id} = ${g.name} (${g.who}; buyer: ${g.buyer})`).join('; ')}.
@@ -713,7 +735,7 @@ Geography: ${geoLabel()}. Today is ${TODAY.toISOString().slice(0,10)}.
 Evidence (numbered search results):
 ${results.map((r,i) => `[${i+1}] ${r.title}\nURL: ${r.url}\nDate: ${r.date || 'unknown'}\n${(r.content||'').slice(0,450)}`).join('\n\n')}
 
-For each ORGANISATION that is itself showing this signal (the company hiring, raising, complaining, launching; never the job board, news site, recruiter or tool vendor), return a lead. Only use organisations named in the evidence. Copy the URL exactly from the evidence. Put everything that looks relevant but fails the rules into "noise" with a short reason.
+For each ORGANISATION that is itself showing this signal (the company hiring, buying, raising, launching, issuing a tender, complaining; never the job board, news site, recruiter or a vendor of a competing product), return a lead. One result can name several organisations: return each one that qualifies. Only use organisations named in the evidence. If fit is uncertain, still return it with a lower fit score rather than dropping it; drop only clear noise. Copy the URL exactly from the evidence. Put everything that looks relevant but fails the rules into "noise" with a short reason.
 Return JSON only:
 {"leads":[{"company":"","seg":"segment id","domain":"best guess of company website domain or empty","region":"","what":"one sentence: what happened, specific","date":"YYYY-MM-DD or empty","url":"","intent":1,"fit":1,"fit_why":"","why_now":"one sentence a salesperson can say"}],
  "noise":[{"company":"","url":"","reason":""}]}
@@ -1078,12 +1100,28 @@ function liveHTML(){
       ${!RUN.busy&&found.length?`<button class="btn btn-primary btn-sm" data-go="buyers">Open all buyers →</button>`:''}</div>
     <div class="prog" aria-label="${pct}% done"><span style="width:${pct}%"></span></div>
     ${found.length?`<div class="profiles">${found.map(({a,h})=>buyerProfile(a,h)).join('')}</div>`
-      : `<div class="small muted">${RUN.busy?'Searching… the first companies usually appear within 20–40 seconds.':'No buyers found this time. Try more signals, another place, or "AI web search only" in Search options.'}</div>`}
+      : RUN.busy ? `<div class="small muted">Searching… the first companies usually appear within 20–40 seconds.</div>` : zeroHelp()}
     ${fold('Search progress by signal', done+' of '+RUN.rows.length+' done', `<div class="runs">${RUN.rows.map(r=>{const sg=sigById(r.id);return `<div class="run ${r.state||''}"><span class="st" aria-hidden="true"></span>
       <div style="min-width:0"><b style="color:var(--ink);font-size:13px">${esc(sg.name)}</b><div class="small muted">${esc(SOURCES[sg.src]||sg.src)} · ${esc(r.note||'waiting')}</div></div>
       <span class="mono small">${r.leads!=null?r.leads+' kept':''}</span></div>`;}).join('')}</div>
       ${RUN.log.length?`<div class="log" style="margin-top:8px">${RUN.log.slice(-60).map(l=>`<div>${esc(l)}</div>`).join('')}</div>`:''}`)}
   </div>`;
+}
+function zeroHelp(){
+  const results = RUN.log.filter(l=>/→ \d+ free \+ \d+ AI results/.test(l)).map(l=>l.match(/→ (\d+) free \+ (\d+) AI/)).map(m=>[+m[1],+m[2]]);
+  const free = results.reduce((n,x)=>n+x[0],0), ai = results.reduce((n,x)=>n+x[1],0);
+  const kk = keyKind();
+  let why, fix;
+  if (!free && !ai){
+    why = 'The searches returned no web results at all.';
+    fix = SEARCH_ERR.ai ? `Your AI key's web search reported: "${esc(SEARCH_ERR.ai)}". Check the key in Set up, or try again in a minute.`
+      : ['claude','gemini'].includes(kk) ? 'Your key\'s web search returned nothing either. Try "Global" under Where to look, or regenerate signals with a focus.'
+      : 'Free search engines often block cloud servers. Connect a Claude or Gemini key in Set up: they search the web themselves and fix this.';
+  } else {
+    why = `Searches found ${free+ai} web pages, but none showed a company that matches the signals.`;
+    fix = 'The signals may be too narrow. Use "Suggest new signals" with a focus such as your main customer type, or switch Where to look to Global.';
+  }
+  return `<div class="note">${ICON.info}<span><b>No buyers this time.</b> ${why} ${fix}</span></div>`;
 }
 function buyerProfile(a, h){
   const g = segById(a.seg), ppl = S.people[a.id] || [], st = (RUN.ppl||{})[a.id];
@@ -1288,7 +1326,23 @@ async function buildProfile(){
   st.textContent = 'Reading the business…';
   try {
     let site = '';
-    if (ENV.backend && /\.[a-z]{2,}/i.test(v) && !/\s/.test(v.trim())){ const pg = await readPage(v.trim()); site = pg.text||''; }
+    const isUrl = /\.[a-z]{2,}/i.test(v) && !/\s/.test(v.trim());
+    if (ENV.backend){
+      st.className = 'status busy';
+      if (isUrl){
+        st.textContent = 'Reading the website…';
+        const base = v.trim().startsWith('http') ? v.trim() : 'https://'+v.trim();
+        const home = await readPage(base); site += (home.title||'') + '\n' + (home.text||'');
+        const more = (home.peopleLinks||[]).filter(l=>/about|company|who-we-are|our-story/i.test(l.url)).slice(0,1);
+        for (const l of more){ const pg = await readPage(l.url); site += '\n' + (pg.text||'').slice(0,3000); }
+      }
+      st.textContent = 'Researching who buys it…';
+      const name = isUrl ? v.trim().replace(/^https?:\/\//,'').replace(/^www\./,'').split(/[\/.]/)[0] : v.trim();
+      const [r1, r2] = await Promise.all([search(name+' customers case study', 'web'), search(name+' use cases who uses it', 'web')]);
+      const notes = [...r1, ...r2].slice(0,10).map(r=>`- ${r.title}: ${(r.content||'').slice(0,200)} (${r.url})`).join('\n');
+      if (notes) site += '\n\nWhat the web says about it:\n' + notes;
+    }
+    st.textContent = 'Writing the playbook…';
     const p = await ask(P.profile(v, site), 'complex');
     if (!Array.isArray(p.signals) || !p.signals.length) throw new Error('No signals came back. Try again with the website address.');
     S.business = {...RM_BUSINESS, ...p, customers:[], sender:S.settings.sender, segments:(p.segments||[]).map(g=>({...g, value:+g.value||3})), competitors:p.competitors||[], pains:p.pains||[]};

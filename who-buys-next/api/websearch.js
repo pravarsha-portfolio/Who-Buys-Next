@@ -58,7 +58,7 @@ async function viaGemini(key, model, q, hint) {
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
     method: 'POST', signal: AbortSignal.timeout(90000), headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `Search for ${hint} matching: ${q}\nPrefer items from the last 12 months. Summarise each relevant result in one sentence with its date.` }] }],
+      contents: [{ role: 'user', parts: [{ text: `Search Google for ${hint} matching: ${q}\nPrefer items from the last 12 months. For every relevant result, write one line: organisation name | what happened, in one sentence | date (YYYY-MM-DD or unknown) | page title. List up to 10.` }] }],
       tools: [{ google_search: {} }]
     })
   });
@@ -70,7 +70,8 @@ async function viaGemini(key, model, q, hint) {
   const supports = meta.groundingSupports || [];
   return chunks.filter(c => c.web?.uri).map((c, i) => {
     const said = supports.filter(s => (s.groundingChunkIndices || []).includes(i)).map(s => s.segment?.text).filter(Boolean).join(' ');
-    return { title: c.web.title || 'Result', url: c.web.uri, date: '', content: said.slice(0, 500) || c.web.title, source: c.web.title || 'Google' };
+    const date = (said.match(/\d{4}-\d{2}-\d{2}/) || [''])[0];
+    return { title: said.split('|')[0].trim().slice(0, 90) || c.web.title || 'Result', url: c.web.uri, date, content: said.slice(0, 600) || c.web.title, source: c.web.title || 'Google' };
   });
 }
 
@@ -85,9 +86,14 @@ export default async function handler(req, res) {
     key = provider ? process.env[ENVK[provider]] : '';
   }
   if (!provider || !key) return res.status(400).json({ results: [], error: 'Web search through AI needs a Claude or Gemini key.' });
-  const model = b.model || (provider === 'claude' ? 'claude-sonnet-5-5' : 'gemini-2.5-flash');
+  const models = b.model ? [b.model] : provider === 'claude' ? ['claude-sonnet-5-5', 'claude-sonnet-4-5'] : ['gemini-flash-latest', 'gemini-2.5-flash'];
   try {
-    const results = provider === 'claude' ? await viaClaude(key, model, q, HINT[src] || HINT.web) : await viaGemini(key, model, q, HINT[src] || HINT.web);
+    let results, lastErr;
+    for (const model of models) {
+      try { results = provider === 'claude' ? await viaClaude(key, model, q, HINT[src] || HINT.web) : await viaGemini(key, model, q, HINT[src] || HINT.web); break; }
+      catch (e) { lastErr = e; if (!/not found|not_found|404|does not exist|unsupported/i.test(String(e.message))) throw e; }
+    }
+    if (!results) throw lastErr;
     res.status(200).json({ results: results.map(r => ({ ...r, src })) });
   } catch (e) {
     res.status(502).json({ results: [], error: String(e.message || e) });
