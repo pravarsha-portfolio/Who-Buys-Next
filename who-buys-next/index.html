@@ -621,13 +621,31 @@ const BAND_LABEL = {hot:'HOT', warm:'WARM', watch:'WATCH'};
 const ranked = () => S.accounts.map(a => ({a, h:heat(a)})).filter(x => x.h.v > 0).sort((x,y) => y.h.v - x.h.v);
 
 /* ---------- AI + search ---------- */
+/* Close a JSON answer that was cut off mid-way: keep every complete item, drop the half-written one. */
+function repairJSON(t){
+  const start = t.search(/[\[{]/); if (start < 0) throw new Error('no JSON');
+  t = t.slice(start);
+  const stack = []; let inStr = false, esc = false, lastGood = -1, goodStack = [];
+  for (let i = 0; i < t.length; i++){
+    const c = t[i];
+    if (inStr){ if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"'){ inStr = true; continue; }
+    if (c === '{' || c === '['){ stack.push(c); continue; }
+    if (c === '}' || c === ']'){ stack.pop(); lastGood = i; goodStack = stack.slice(); if (!stack.length) return JSON.parse(t.slice(0, i+1)); }
+  }
+  if (lastGood < 0) throw new Error('unrecoverable');
+  let out = t.slice(0, lastGood+1).replace(/,\s*$/, '');
+  for (let k = goodStack.length - 1; k >= 0; k--) out += goodStack[k] === '{' ? '}' : ']';
+  return JSON.parse(out);
+}
 function parseJSON(t){
   if (typeof t !== 'string') return t;
   const f = t.match(/```(?:json)?\s*([\s\S]*?)```/); if (f) t = f[1];
   try { return JSON.parse(t); } catch(e){}
   const a = t.indexOf('{'), b = t.lastIndexOf('}'); const c = t.indexOf('['), d = t.lastIndexOf(']');
   const cand = (a > -1 && (c === -1 || a < c)) ? t.slice(a, b+1) : t.slice(c, d+1);
-  return JSON.parse(cand);
+  try { return JSON.parse(cand); } catch(e){}
+  return repairJSON(t);
 }
 const aiReady = () => (ENV.backend && (S.settings.key || ENV.serverAI)) || !!ENV.sample;
 async function ask(prompt, tier){
@@ -636,7 +654,15 @@ async function ask(prompt, tier){
       body:JSON.stringify({prompt, provider:S.settings.provider==='auto'?undefined:S.settings.provider, key:S.settings.key||undefined, model:S.settings.model||undefined})});
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'AI request failed');
-    return parseJSON(j.text);
+    try { return parseJSON(j.text); }
+    catch(e){
+      // One retry with a shorter answer before giving up.
+      const r2 = await fetch('api/ai', {method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({prompt: prompt + '\n\nIMPORTANT: your previous answer was cut off. Return valid, compact JSON only. Keep every text field under 18 words and give fewer items if needed.', provider:S.settings.provider==='auto'?undefined:S.settings.provider, key:S.settings.key||undefined, model:S.settings.model||undefined})});
+      const j2 = await r2.json();
+      if (!r2.ok) throw new Error(j2.error || 'AI request failed');
+      try { return parseJSON(j2.text); } catch(e2){ throw new Error('The AI answer was too long to read. Please try again.'); }
+    }
   }
   if (ENV.sample){
     try { return await ENV.sample.json(prompt, {modelTier: tier || 'default', cache:false}); }
@@ -721,7 +747,7 @@ Return JSON only:
  "competitors":["direct competitors, never buyers"],
  "signals":[{"id":"S1","tier":"A|B|C","src":"<source key>","segs":["segment ids"],"name":"short name","why":"why this means a buyer is ready","query":"search query","lead":"e.g. 4–12 wks","earliness":1,"intent":1,"noise":"what looks like this but is not a buyer"}],
  "noise":["5 rules that reject false positives, including vendors and competitors"]}
-Give 4-7 segments (value 1-5 = how attractive). Give 12 signals, strongest and earliest first. earliness and intent are 1-5.`,
+Give 4-6 segments (value 1-5 = how attractive). Give 12 signals, strongest and earliest first. earliness and intent are 1-5. Keep it compact: every text field under 20 words.`,
 
   extract:(sig, results, b) => `You are scouting buyers for ${b.name}: ${b.sells}
 Buyer segments: ${b.segments.map(g => `${g.id} = ${g.name} (${g.who}; buyer: ${g.buyer})`).join('; ')}.

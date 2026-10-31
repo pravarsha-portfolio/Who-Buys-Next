@@ -26,7 +26,7 @@ async function call(provider, key, model, prompt) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: t,
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: 6000, system: SYSTEM, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model, max_tokens: 16000, system: SYSTEM, messages: [{ role: 'user', content: prompt }] })
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error?.message || 'Claude error ' + r.status);
@@ -35,7 +35,7 @@ async function call(provider, key, model, prompt) {
   if (provider === 'gemini') {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
       method: 'POST', signal: t, headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, responseMimeType: 'application/json' } })
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, responseMimeType: 'application/json', maxOutputTokens: 32768 } })
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error?.message || 'Gemini error ' + r.status);
