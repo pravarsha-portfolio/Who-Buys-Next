@@ -275,6 +275,21 @@ ol.clean{margin:0; padding-left:18px; display:grid; gap:6px}
 @keyframes slidein{from{transform:translateY(6px); opacity:.4} to{transform:none; opacity:1}}
 .runs{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px}
 @media (max-width:760px){ .picks,.runs{grid-template-columns:1fr} .lead{grid-template-columns:auto 1fr} .lead > .btn{grid-column:2; justify-self:start} }
+/* ---------- Folds, AI line, people rows, detail ---------- */
+.fold{border:1px solid var(--border); border-radius:10px; background:var(--card)}
+.zone.in .fold{border-color:var(--in-border)}
+.fold > summary{list-style:none; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 14px; color:var(--ink)}
+.fold > summary::-webkit-details-marker{display:none}
+.fold > summary:hover{background:var(--surface); border-radius:10px}
+.fold-i{font-weight:700; color:var(--purple); transition:transform .15s}
+.fold[open] .fold-i{transform:rotate(45deg)}
+.fold-b{padding:2px 14px 14px}
+.ailine{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.prow{display:grid; grid-template-columns:36px 1fr auto; gap:10px; align-items:center; padding:9px 10px; border:1px solid var(--border); border-radius:10px; background:var(--card)}
+.prow .ava{width:36px; height:36px; font-size:13px}
+.detail{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; box-shadow:var(--shadow)}
+.tier + .tier{margin-top:6px}
+.pick{grid-template-columns:auto 1fr auto}
 </style>
 
 <header class="chrome">
@@ -285,9 +300,9 @@ ol.clean{margin:0; padding-left:18px; display:grid; gap:6px}
       </div>
       <div style="min-width:0"><h1>Who Buys Next</h1><p>Find who is ready to buy ResearchMind</p></div>
     </div>
-    <span id="modePill" class="pill p-demo"><span class="dot"></span>Checking…</span>
+    <button id="modePill" class="pill p-demo" data-go="setup" style="border:none;cursor:pointer" title="Connection status"><span class="dot"></span>Checking…</button>
     <button class="btn btn-ghost btn-sm" data-act="help">How it works</button>
-    <button class="btn btn-ghost btn-sm" data-act="settings">Settings</button>
+    <button class="btn btn-ghost btn-sm" data-act="settings" aria-label="Advanced settings">⚙︎</button>
   </div>
   <nav class="bar steps" id="rail" aria-label="Steps"></nav>
 </header>
@@ -520,13 +535,13 @@ const DEMO = {
 };
 
 /* ---------- State ---------- */
-const KEY = 'signalmind.v3';
+const KEY = 'whobuysnext.v4';
 const blank = () => ({
   business:JSON.parse(JSON.stringify(RM_BUSINESS)), signals:JSON.parse(JSON.stringify(RM_SIGNALS)), noise:[...RM_NOISE],
   weights:{intent:35, early:25, fit:25, fresh:15}, stack:5,
   accounts:JSON.parse(JSON.stringify(DEMO.accounts)), rejected:JSON.parse(JSON.stringify(DEMO.rejected)),
   people:JSON.parse(JSON.stringify(DEMO.people)), outreach:JSON.parse(JSON.stringify(DEMO.outreach)),
-  view:'business', sel:'emergent', personSel:'emergent::Mukund Jha', filter:'all', msgTab:'linkedin_invite',
+  view:'setup', sel:'emergent', personSel:'emergent::Mukund Jha', filter:'all', msgTab:'linkedin_invite',
   settings:{provider:'auto', key:'', model:'', sender:'Pravarsha, ResearchMind', region:'India + global'},
   runAt:DEMO.at, source:'demo'
 });
@@ -699,7 +714,7 @@ Segments: ${b.segments.map(g=>g.id+' = '+g.name).join('; ')}
 Return JSON only: {"verdict":"lead|noise","reason":"","company":"","seg":"segment id","domain":"","region":"","sid":"S#","what":"","date":"YYYY-MM-DD or empty","url":"the URL if one is in the text, else empty","intent":1,"fit":1,"fit_why":"","why_now":""}`
 };
 
-/* ---------- Views ---------- */
+/* ---------- Views: five steps ---------- */
 const ICON = {
   in:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   out:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
@@ -708,29 +723,27 @@ const ICON = {
 const zone = (kind, title, sub, body, extra='') => `<section class="zone ${kind}">
   <div class="zh"><div><span class="ztag ${kind}">${ICON[kind]}${kind==='in'?'Your input':'Result'}</span><h3>${title}</h3>${sub?`<p>${sub}</p>`:''}</div>${extra}</div>
   ${body}</section>`;
+const fold = (title, sub, body, open=false) => `<details class="fold" ${open?'open':''}><summary><span><b>${title}</b>${sub?`<span class="small muted"> · ${sub}</span>`:''}</span><span class="fold-i" aria-hidden="true">＋</span></summary><div class="fold-b">${body}</div></details>`;
 
 const STEPS = [
-  {id:'business', t:'Product', s:'Who buys it'},
-  {id:'playbook', t:'Signals', s:'What to watch'},
-  {id:'scout', t:'Scout', s:'Find buyers'},
-  {id:'accounts', t:'Accounts', s:'Ranked buyers'},
-  {id:'people', t:'People', s:'Who to contact'},
-  {id:'outreach', t:'Outreach', s:'What to send'},
-  {id:'onepager', t:'Share', s:'One-page playbook'}
+  {id:'setup', t:'Set up', s:'AI key and product'},
+  {id:'find', t:'Find buyers', s:'Pick signals, run'},
+  {id:'buyers', t:'Buyers', s:'Ranked, with people'},
+  {id:'outreach', t:'Outreach', s:'Plan and messages'},
+  {id:'share', t:'Playbook', s:'Share with the team'}
 ];
 function renderRail(){
-  const counts = {playbook:S.signals.filter(s=>s.on).length, accounts:ranked().length, people:Object.values(S.people).flat().length, outreach:Object.keys(S.outreach).length};
+  const counts = {find:S.signals.filter(s=>s.on).length, buyers:ranked().length, outreach:Object.keys(S.outreach).length};
   const idx = STEPS.findIndex(s => s.id === S.view);
   $('#rail').innerHTML = STEPS.map((s,i) => `
     <button class="stp ${s.id===S.view?'on':''} ${i<idx?'done':''}" data-go="${s.id}" ${s.id===S.view?'aria-current="step"':''}>
       <span class="n">${i<idx?'✓':i+1}</span><span><b>${s.t}${counts[s.id]?`<span class="badge">${counts[s.id]}</span>`:''}</b><small>${s.s}</small></span>
     </button>`).join('');
-  const on = $('#rail .stp.on'); if (on && on.scrollIntoView) try { on.scrollIntoView({block:'nearest', inline:'nearest'}); } catch(e){}
 }
 function render(){
+  if (!VIEWS[S.view]) S.view = 'setup';
   renderRail();
-  const v = VIEWS[S.view] || VIEWS.business;
-  $('#view').innerHTML = v() + navFooter();
+  $('#view').innerHTML = VIEWS[S.view]() + navFooter();
   save();
 }
 function navFooter(){
@@ -738,201 +751,131 @@ function navFooter(){
   return `<div class="nav">${prev?`<button class="btn btn-ghost" data-go="${prev.id}">← ${prev.t}</button>`:'<span></span>'}
     ${next?`<button class="btn btn-primary" data-go="${next.id}">Next: ${next.t} →</button>`:''}</div>`;
 }
-const phead = (n, title, sub, right='') => `<div class="phead"><div><div class="eyebrow">Step ${n} of 7</div><h2>${title}</h2><p>${sub}</p></div>${right}</div>`;
-const tierChip = t => `<span class="chip c-${String(t).toLowerCase()}">Tier ${esc(t)}</span>`;
+const phead = (n, title, sub, right='') => `<div class="phead"><div><div class="eyebrow">Step ${n} of ${STEPS.length}</div><h2>${title}</h2><p>${sub}</p></div>${right}</div>`;
+const tierChip = t => `<span class="chip c-${String(t).toLowerCase()}">${t==='A'?'Strong':t==='B'?'Good':'Background'}</span>`;
 const sigChip = id => { const s = sigById(id); return `<span class="chip c-sig" title="${esc(s.name)}">${esc(id)}</span>`; };
 const segChip2 = id => { const g = segById(id); return g ? `<span class="chip c-seg">${esc(g.name)}</span>` : ''; };
 const valueDots = v => `<span class="value" aria-label="Value ${v} of 5">${[1,2,3,4,5].map(i=>`<i class="${i<=v?'on':''}"></i>`).join('')}</span>`;
 const heatBox = v => `<span class="heat h-${band(v)}">${v}<small>${BAND_LABEL[band(v)]}</small></span>`;
-const aiNote = () => aiReady() ? '' : `<div class="note">${ICON.info}<span><b>AI is not connected.</b> ${ENV.backend?'Open Settings and paste an API key.':'In this preview AI runs through Claude once you allow it; in the deployed app, add your key in Settings.'}</span></div>`;
-
-function keyZone(num){
-  const kk = keyKind();
-  if (num !== 1 && (S.settings.key || ENV.serverAI)){
-    const nm = S.settings.key ? (({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'API')+' key' : 'Team key';
-    return `<div class="row" style="justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card)">
-      <span class="row"><span class="chip role-champ">✓ ${esc(nm)} connected</span><span class="small muted">Saved in Step 1. No need to add it again.</span></span>
-      <button class="btn-link" data-go="business">Change key</button></div>`;
-  }
-  const name = ({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[kk]||'API';
-  const status = S.settings.key
-    ? `<span class="chip role-champ">✓ ${esc(name)} key saved</span> <span class="small muted">${['claude','gemini'].includes(kk)?'Builds playbooks, reads results, writes messages and searches the web.':'Builds playbooks, reads results and writes messages. Search uses free sources.'}</span>`
-    : ENV.serverAI ? `<span class="chip role-champ">✓ Team key set on the server</span> <span class="small muted">You can skip this. Paste your own key only to use your account instead.</span>`
-    : ENV.sample ? `<span class="chip c-b">Using Claude in this preview</span> <span class="small muted">Your key is used on the deployed site, where live search works.</span>`
-    : `<span class="small muted">No key yet. Get a free Gemini key at aistudio.google.com or a Claude key at console.anthropic.com.</span>`;
-  return zone('in', (num?num+' · ':'')+'Connect your API key', 'Paste it once. It stays in this browser and is used on every step: building playbooks, scouting, finding people and writing messages.', `
-    <div class="row" style="flex-wrap:nowrap"><input id="keyIn" type="password" autocomplete="off" placeholder="AIza… (Gemini, free) or sk-ant-… (Claude)" value="${esc(S.settings.key)}" aria-label="API key">
-      <button class="btn btn-primary" data-act="saveKey">Save key</button>${S.settings.key?'<button class="btn btn-ghost" data-act="clearKey">Remove</button>':''}</div>
-    <div class="row">${status}</div>`);
-}
+const keyName = () => S.settings.key ? (({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[keyKind()]||'API')+' key' : ENV.serverAI ? 'Team key' : ENV.sample ? 'Claude (preview)' : '';
+/* One line used on every step after Set up, instead of repeating the key form. */
+const aiLine = () => aiReady()
+  ? `<div class="ailine"><span class="chip role-champ">✓ AI connected</span><span class="small muted">${esc(keyName())}${aiSearchReady()?' · web search on':''}</span></div>`
+  : `<div class="note">${ICON.info}<span><b>Connect AI first.</b> It takes one paste in Set up, and is used on every step.</span><button class="btn btn-primary btn-sm" data-go="setup" style="margin-left:auto">Connect AI</button></div>`;
 
 const VIEWS = {
-business(){
-  const b = S.business;
-  return phead(1, 'Who buys '+esc(b.name)+'?', 'Start here. Connect your API key, then confirm what you sell. The platform works out who holds the budget, who only uses the product, and how to sell to each group.') +
-  keyZone(1) +
-  zone('in', '2 · What are you selling?', 'ResearchMind is loaded. To scout for a different product, describe it or paste its website.', `
+setup(){
+  const b = S.business, kk = keyKind();
+  const connected = !!S.settings.key && !S.editKey;
+  const keyBody = connected
+    ? `<div class="row" style="justify-content:space-between"><span class="row"><span class="chip role-champ">✓ ${esc(keyName())} connected</span><span class="small muted">${['claude','gemini'].includes(kk)?'Used for playbooks, reading results, messages and web search.':'Used for playbooks, reading results and messages.'} Saved in this browser, so you only do this once.</span></span>
+        <span class="row"><button class="btn btn-ghost btn-sm" data-act="editKey">Change</button><button class="btn btn-ghost btn-sm" data-act="clearKey">Remove</button></span></div>`
+    : `<div class="row" style="flex-wrap:nowrap"><input id="keyIn" type="password" autocomplete="off" placeholder="Paste a Gemini key (AIza…, free) or Claude key (sk-ant-…)" aria-label="API key" value="${esc(S.settings.key)}">
+        <button class="btn btn-primary" data-act="saveKey">Connect</button>${S.editKey?'<button class="btn btn-ghost" data-act="cancelKey">Cancel</button>':''}</div>
+       <span class="small muted">${ENV.serverAI?'A team key is already set on the server, so this is optional.':ENV.sample?'This preview already uses Claude. Your key is for the live site, where web search works.':'No key yet? Get a free one at aistudio.google.com (Gemini) or console.anthropic.com (Claude).'}</span>`;
+  return phead(1, 'Set up', 'Two things, once: connect AI, and confirm what you sell. Everything after this uses them automatically.') +
+  zone('in', '1 · Connect AI', '', keyBody) +
+  zone('in', '2 · What you sell', 'ResearchMind is loaded. Type another product or website to build a fresh playbook for it.', `
     <div class="card-in prod"><span class="mark">${esc(initials(b.name))}</span>
       <div style="min-width:0"><b style="color:var(--ink);font-size:15px">${esc(b.name)}</b><div class="small">${esc(b.one_liner)}</div></div>
       <span class="chip c-b">Active</span></div>
-    <div class="field"><label for="bizIn">Switch to another product (optional)</label>
-      <div class="row" style="flex-wrap:nowrap"><input id="bizIn" type="text" placeholder="Website or one line, e.g. 'drone docking station software'">
-      <button class="btn btn-outline" data-act="buildProfile" ${aiReady()?'':'disabled'}>Build playbook</button></div>
-      <span class="hint">${aiReady()?'This replaces the ResearchMind playbook. You can restore it from Settings.':'Save your API key above to build a playbook for another product.'}</span></div>
+    <div class="row" style="flex-wrap:nowrap"><input id="bizIn" type="text" placeholder="Optional: another product or website" aria-label="Another product or website">
+      <button class="btn btn-outline" data-act="buildProfile" ${aiReady()?'':'disabled'} title="${aiReady()?'':'Connect AI first'}">Build playbook</button></div>
     <div id="bizStatus" class="status"></div>`) +
-  zone('out', 'The buyer map', 'Generated from the product and its research. The person who uses the product is often not the person who pays.', `
-    <div class="callout"><span class="label" style="color:var(--purple-ink)">A buyer is ready when</span><div style="margin-top:4px">${esc(b.trigger)}</div></div>
+  zone('out', 'Who buys it', esc(b.trigger), `
     <div class="grid3">${b.segments.map(g=>`<div class="seg">
       <div class="row" style="justify-content:space-between"><h4>${esc(g.name)}</h4>${valueDots(g.value)}</div>
       <div class="kv"><span>Buys</span><span class="buy">${esc(g.buyer)}</span></div>
       <div class="kv"><span>Uses</span><span>${esc(g.user)}</span></div>
       <div class="kv"><span>How</span><span class="muted">${esc(g.motion)}</span></div></div>`).join('')}</div>
-    <div class="grid2">
-      <div class="stack" style="gap:8px"><span class="label">Pains it removes</span><div class="row" style="gap:6px">${b.pains.map(p=>`<span class="chip c-grey" style="white-space:normal">${esc(p)}</span>`).join('')}</div></div>
-      <div class="stack" style="gap:8px"><span class="label">Competitors · never buyers</span><div class="row" style="gap:6px">${b.competitors.map(c=>`<span class="chip c-src">${esc(c)}</span>`).join('')}</div></div>
-    </div>`);
+    ${fold('Pains it removes and competitors', 'reference', `<div class="stack" style="gap:10px">
+      <div class="row" style="gap:6px">${b.pains.map(p=>`<span class="chip c-grey" style="white-space:normal">${esc(p)}</span>`).join('')}</div>
+      <div class="row" style="gap:6px"><span class="label">Competitors, never buyers</span>${b.competitors.map(c=>`<span class="chip c-src">${esc(c)}</span>`).join('')}</div></div>`)}`);
 },
 
-playbook(){
-  const w = S.weights, tot = w.intent+w.early+w.fit+w.fresh, on = S.signals.filter(s=>s.on).length;
-  const tiers = [['A','Strongest signals','They name the need outright. Act within days.'],['B','Good signals','Something changed that creates the need. Act within weeks.'],['C','Background signals','Useful context. Watch, do not chase.']];
-  return phead(2, 'Signals to watch', `Each signal is a public moment that shows a buyer is about to need ${esc(S.business.name)}. Switch them on or off and open "Fine-tune" to change how strong each one is. Accounts re-score instantly.`,
-    `<span class="pill p-ai">${on} of ${S.signals.length} signals on</span>`) +
-  zone('in', 'Choose your signals', 'Grouped by strength. The coloured tags show which buyer segments each signal finds.', tiers.map(([t,h,d])=>{
-    const list = S.signals.map((s,i)=>({s,i})).filter(x=>x.s.tier===t); if (!list.length) return '';
-    return `<div class="tier"><div class="tier-h">${tierChip(t)}<h4>${h}</h4><span class="small muted">${d}</span></div>
-    ${list.map(({s,i})=>`<div class="sig ${s.on?'':'off'}">
-      <button class="toggle ${s.on?'on':''}" data-act="tog" data-i="${i}" aria-label="Use ${esc(s.name)}" aria-pressed="${s.on}"></button>
-      <div style="min-width:0"><div class="row" style="gap:6px"><span class="mono small muted">${s.id}</span><span class="nm">${esc(s.name)}</span></div>
-        <div class="why">${esc(s.why)}</div>
-        <div class="row" style="gap:4px;margin-top:6px">${(s.segs||[]).map(segChip2).join('')}</div></div>
-      <div class="row" style="justify-content:flex-end"><span class="chip c-src">${esc(SOURCES[s.src]||s.src)}</span><span class="small muted num">${esc(s.lead)}</span></div>
-      <details><summary>Fine-tune</summary><div class="adv">
-        <div class="field"><label>How clearly it shows need</label>${stepper(i,'intent',s.intent)}<span class="hint">Intent, 1–5</span></div>
-        <div class="field"><label>How early it appears</label>${stepper(i,'earliness',s.earliness)}<span class="hint">Earliness, 1–5</span></div>
-        <div class="field"><label>Search query</label><div class="q" contenteditable="true" spellcheck="false" data-q="${i}" role="textbox" aria-label="Search query for ${esc(s.id)}">${esc(s.query)}</div></div>
-        <div class="small" style="grid-column:1/-1"><b>Not a real signal:</b> ${esc(s.noise)}</div></div></details>
-    </div>`).join('')}</div>`; }).join('')) +
-  `<details class="zone in tune"><summary><div class="zh"><div><span class="ztag in">${ICON.in}Your input</span><h3>Tune the scoring (optional)</h3><p>Change what matters most and how valuable each segment is. Click to open.</p></div><span class="btn btn-ghost btn-sm">Open</span></div></summary>
-    <div class="grid2" style="margin-top:14px">
-      <div class="stack"><span class="label">Weights</span>
+find(){
+  const busy = RUN.busy, on = S.signals.filter(s=>s.on), custom = S.signals.filter(s=>s.custom), live = ENV.backend;
+  const canRun = live && aiReady() && on.length && !busy;
+  const why = !live ? 'Live search runs on your deployed site. This preview cannot reach the web.' : !aiReady() ? 'Connect AI in Set up to run.' : !on.length ? 'Pick at least one signal.' : 'About 30–90 seconds. Buyers appear below as they are found.';
+  const w = S.weights;
+  const tiers = [['A','Strong','They name the need'],['B','Good','Something changed that creates the need'],['C','Background','Context, watch only']];
+  return phead(2, 'Find buyers', 'Tick the signals to hunt, press Run, and watch buyers appear. Each signal is a public moment that shows someone is about to need '+esc(S.business.name)+'.') +
+  aiLine() +
+  zone('in', 'Pick signals', '', `
+    <div class="row"><button class="btn btn-ghost btn-sm" data-act="pickA">Strong only</button><button class="btn btn-ghost btn-sm" data-act="pickAll">All</button><button class="btn btn-ghost btn-sm" data-act="pickNone">None</button>
+      <span class="small muted" style="margin-left:auto"><b style="color:var(--ink)">${on.length}</b> of ${S.signals.length} picked</span></div>
+    ${tiers.map(([t,h,d])=>{ const list = S.signals.map((s,i)=>({s,i})).filter(x=>x.s.tier===t); if (!list.length) return '';
+      return `<div class="tier"><div class="tier-h">${tierChip(t)}<span class="small muted">${d}</span></div>
+      <div class="picks">${list.map(({s,i})=>`<div class="pick ${s.on?'on':''}">
+        <input type="checkbox" id="pk${i}" data-act="pick" data-i="${i}" ${s.on?'checked':''} ${busy?'disabled':''}>
+        <label for="pk${i}" style="min-width:0;cursor:pointer"><b>${esc(s.name)}</b>
+          <span class="small" style="display:block;margin-top:2px">${esc(s.why)}</span>
+          <span class="row" style="gap:4px;margin-top:6px"><span class="chip c-src">${esc(SOURCES[s.src]||s.src)}</span>${(s.segs||[]).slice(0,2).map(segChip2).join('')}${(s.segs||[]).length>2?`<span class="small muted">+${s.segs.length-2}</span>`:''}${s.custom?'<span class="chip c-b">Yours</span>':''}</span></label>
+        ${s.custom?`<button class="btn-link small" data-act="delSig" data-i="${i}">Remove</button>`:`<button class="btn-link small" data-act="editSig" data-i="${i}" aria-label="Fine-tune ${esc(s.name)}">Edit</button>`}
+        ${S.editSig===i?`<div class="adv" style="grid-column:1/-1">
+          <div class="field"><label>How clearly it shows need</label>${stepper(i,'intent',s.intent)}</div>
+          <div class="field"><label>How early it appears</label>${stepper(i,'earliness',s.earliness)}</div>
+          <div class="field"><label>Search words</label><div class="q" contenteditable="true" spellcheck="false" data-q="${i}" role="textbox" aria-label="Search words">${esc(s.query)}</div></div>
+          <div class="small" style="grid-column:1/-1"><b>Ignore:</b> ${esc(s.noise)}</div></div>`:''}
+      </div>`).join('')}</div></div>`; }).join('')}
+    ${fold('+ Add your own signal', 'optional', `<div class="grid3">
+      <div class="field"><label for="cName">What to look for</label><input id="cName" type="text" placeholder="Design schools launching UX research courses"></div>
+      <div class="field"><label for="cQuery">Search words</label><input id="cQuery" type="text" placeholder="new UX research course 2026"></div>
+      <div class="field"><label for="cSrc">Where</label><select id="cSrc" style="width:100%">${Object.entries(SOURCES).filter(([k])=>k!=='linkedin').map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
+      <div class="field"><label for="cSeg">Which buyers</label><select id="cSeg" style="width:100%">${S.business.segments.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="cTier">Strength</label><select id="cTier" style="width:100%"><option value="A">Strong: names the need</option><option value="B" selected>Good: creates the need</option><option value="C">Background</option></select></div>
+      <div class="field"><label>&nbsp;</label><button class="btn btn-outline" data-act="addSig" ${busy?'disabled':''}>Add and pick it</button></div>
+    </div><span id="cStatus" class="status"></span>`, custom.length===0 && false)}
+    ${fold('Search options', esc((S.settings.region||'global')+' · '+({auto:'free + AI backup',ai:'AI search only',free:'free only'})[S.settings.searchMode||'auto']), `<div class="grid2">
+      <div class="field"><label for="region">Focus region</label><input id="region" type="text" value="${esc(S.settings.region)}" data-set="region"><span class="hint">Write "global" for no focus.</span></div>
+      <div class="field"><label for="sSearch2">Search with</label><select id="sSearch2" style="width:100%">
+        <option value="auto" ${(S.settings.searchMode||'auto')==='auto'?'selected':''}>Free search, AI search fills gaps</option>
+        <option value="ai" ${S.settings.searchMode==='ai'?'selected':''}>AI web search only (most reliable)</option>
+        <option value="free" ${S.settings.searchMode==='free'?'selected':''}>Free search only</option></select></div></div>`)}
+    ${fold('How buyers are scored', 'change weights', `<div class="stack">
+      <div class="formula">Heat = ( ${w.intent}·Intent + ${w.early}·Earliness + ${w.fit}·Fit + ${w.fresh}·Freshness ) ÷ ${w.intent+w.early+w.fit+w.fresh} ÷ 5 × 100<br>+${S.stack} for each extra signal at the same company (max 2) · capped at 100</div>
+      <div class="bands"><span class="chip c-red">HOT 75+ · act this week</span><span class="chip" style="background:var(--warm-bg);color:var(--warm)">WARM 55–74</span><span class="chip" style="background:var(--watch-bg);color:var(--watch)">WATCH below 55</span></div>
+      <div class="grid2"><div class="stack"><span class="label">Weights</span>
         ${[['intent','Intent'],['early','Earliness'],['fit','Fit'],['fresh','Freshness']].map(([k,l])=>`<div class="wrow"><label for="w-${k}" class="small" style="font-weight:650">${l}</label><input id="w-${k}" type="range" min="0" max="60" value="${w[k]}" data-w="${k}"><span class="num mono">${w[k]}</span></div>`).join('')}
         <div class="wrow"><label for="w-stack" class="small" style="font-weight:650">Stacking</label><input id="w-stack" type="range" min="0" max="15" step="1" value="${S.stack}" data-w="stack"><span class="num mono">+${S.stack}</span></div></div>
       <div class="stack"><span class="label">Segment value (feeds Fit)</span>
         ${S.business.segments.map((g,i)=>`<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span class="small" style="color:var(--ink);font-weight:600">${esc(g.name)}</span>
-          <span class="stepper"><button data-act="segdec" data-i="${i}" aria-label="Lower ${esc(g.name)}">−</button><span>${g.value}</span><button data-act="seginc" data-i="${i}" aria-label="Raise ${esc(g.name)}">+</button></span></div>`).join('')}</div>
-    </div></details>` +
-  zone('out', 'How every buyer gets scored', 'This is the rule the scout applies. Hot accounts go to sales this week.', `
-    <div class="formula">Heat = ( ${w.intent}·Intent + ${w.early}·Earliness + ${w.fit}·Fit + ${w.fresh}·Freshness ) ÷ ${tot} ÷ 5 × 100<br>+${S.stack} for each extra signal at the same company (max 2) · capped at 100</div>
-    <div class="bands"><span class="chip c-red">HOT 75+ · act this week</span><span class="chip" style="background:var(--warm-bg);color:var(--warm)">WARM 55–74 · nurture</span><span class="chip" style="background:var(--watch-bg);color:var(--watch)">WATCH below 55</span><span class="small muted">Freshness: ≤30 days = 5 · ≤90 = 4 · ≤180 = 3 · ≤365 = 2 · older is thrown out</span></div>
-    <div class="grid2">
-      <div class="stack" style="gap:8px"><span class="label">Thrown out as noise</span><ol class="clean small">${S.noise.map(n=>`<li>${esc(n)}</li>`).join('')}</ol></div>
-      <div class="stack" style="gap:8px"><span class="label">Tender or job post?</span>
-        <p class="small">A tender for research <b>services</b> buys an agency, not a tool, so it is off by default and only used to find the agency that wins. A tender for <b>analysis software</b> (NVivo, ATLAS.ti, MAXQDA licences) is a buyer with budget for our category, so it scores high. A job post that mentions synthesis is a named team with a decision 1–3 months away.</p></div>
-    </div>`);
-},
-
-scout(){
-  const live = ENV.backend, busy = RUN.busy;
-  const on = S.signals.filter(s=>s.on), custom = S.signals.filter(s=>s.custom);
-  const kk = keyKind();
-  const canRun = live && aiReady() && on.length && !busy;
-  const why = !live ? 'Live scouting runs on your deployed site. This preview is sandboxed from the web.' : !aiReady() ? 'Add your API key above to run.' : !on.length ? 'Pick at least one signal.' : '';
-  return phead(3, 'Find buyers', 'Pick the signals to hunt, add your own if you like, then run. Buyers appear below the moment each signal finishes.') +
-
-  zone('in', '1 · Pick signals to run', 'These are the same signals as Step 2. Switching one here switches it there too.', `
-    <div class="row"><button class="btn btn-ghost btn-sm" data-act="pickAll">Select all</button><button class="btn btn-ghost btn-sm" data-act="pickA">Strongest only</button><button class="btn btn-ghost btn-sm" data-act="pickNone">Clear</button>
-      <span class="small muted" style="margin-left:auto"><b style="color:var(--ink)">${on.length}</b> of ${S.signals.length} selected</span></div>
-    <div class="picks">${S.signals.map((s,i)=>`<label class="pick ${s.on?'on':''}">
-      <input type="checkbox" data-act="pick" data-i="${i}" ${s.on?'checked':''} ${busy?'disabled':''}>
-      <span style="min-width:0"><span class="row" style="gap:6px"><span class="mono small muted">${esc(s.id)}</span><b>${esc(s.name)}</b></span>
-      <span class="row" style="gap:4px;margin-top:3px"><span class="chip c-${String(s.tier).toLowerCase()}">${s.tier==='A'?'Strong':s.tier==='B'?'Good':'Background'}</span><span class="chip c-src">${esc(SOURCES[s.src]||s.src)}</span>${s.custom?'<span class="chip c-seg">Yours</span>':''}</span></span>
-      ${s.custom?`<button class="btn-link small" data-act="delSig" data-i="${i}" aria-label="Remove ${esc(s.name)}">Remove</button>`:''}</label>`).join('')}</div>`) +
-
-  zone('in', '2 · Add your own signal (optional)', 'Skip this to run with the signals above. Anything you add is scouted together with them.', `
-    <div class="grid3">
-      <div class="field"><label for="cName">What are you looking for?</label><input id="cName" type="text" placeholder="e.g. Design schools launching UX research courses"></div>
-      <div class="field"><label for="cQuery">Search words</label><input id="cQuery" type="text" placeholder="e.g. new UX research course 2026 design school"></div>
-      <div class="field"><label for="cSrc">Where to look</label><select id="cSrc" style="width:100%">${Object.entries(SOURCES).filter(([k])=>k!=='linkedin').map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
-      <div class="field"><label for="cSeg">Which buyers</label><select id="cSeg" style="width:100%">${S.business.segments.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
-      <div class="field"><label for="cTier">How strong is it?</label><select id="cTier" style="width:100%"><option value="A">Strong: names the need</option><option value="B" selected>Good: creates the need</option><option value="C">Background</option></select></div>
-      <div class="field"><label>&nbsp;</label><button class="btn btn-outline" data-act="addSig" ${busy?'disabled':''}>+ Add signal</button></div>
-    </div><span id="cStatus" class="status"></span>`) +
-
-  keyZone(3) +
-  zone('in', '4 · Search settings', '', `
-    <div class="grid2"><div class="field"><label for="region">Focus region</label><input id="region" type="text" value="${esc(S.settings.region)}" data-set="region"><span class="hint">Write "global" for no focus.</span></div>
-      <div class="field"><label for="sSearch2">Search with</label><select id="sSearch2" style="width:100%">
-        <option value="auto" ${(S.settings.searchMode||'auto')==='auto'?'selected':''}>Free search, AI search fills gaps</option>
-        <option value="ai" ${S.settings.searchMode==='ai'?'selected':''}>AI web search only (most reliable)</option>
-        <option value="free" ${S.settings.searchMode==='free'?'selected':''}>Free search only</option></select></div></div>`) +
-
+          <span class="stepper"><button data-act="segdec" data-i="${i}" aria-label="Lower">−</button><span>${g.value}</span><button data-act="seginc" data-i="${i}" aria-label="Raise">+</button></span></div>`).join('')}</div></div>
+      <div class="grid2"><div><span class="label">Ignored as noise</span><ol class="clean small" style="margin-top:6px">${S.noise.map(n=>`<li>${esc(n)}</li>`).join('')}</ol></div>
+        <div><span class="label">Tender or job post?</span><p class="small" style="margin-top:6px">A tender for research services buys an agency, so it is off by default. A tender for analysis software is a buyer with budget, so it scores high. A job post that mentions synthesis is a team with a decision 1–3 months away.</p></div></div></div>`)}
+  `) +
   `<div class="runbar">
-    <div><b style="color:var(--ink);font-size:15px">${busy?'Scouting '+RUN.rows.length+' signals…':'Ready to scout '+on.length+' signal'+(on.length===1?'':'s')+(custom.length?' ('+custom.length+' yours)':'')}</b>
-      <div class="small muted">${busy?'Results appear below as each signal finishes.':esc(why||'About 30–90 seconds. Results stream in below.')}</div></div>
-    ${busy?`<button class="btn btn-ghost btn-lg" data-act="stopScout">Stop</button>`:`<button class="btn btn-primary btn-lg" data-act="scout" ${canRun?'':'disabled'}>▶ Run scout</button>`}
+    <div><b style="color:var(--ink);font-size:15px">${busy?'Scouting '+RUN.rows.length+' signals…':on.length+' signal'+(on.length===1?'':'s')+' picked'+(custom.length?' ('+custom.length+' yours)':'')}</b>
+      <div class="small muted">${busy?'Buyers appear below as each signal finishes.':esc(why)}</div></div>
+    ${busy?`<button class="btn btn-ghost btn-lg" data-act="stopScout">Stop</button>`:`<button class="btn btn-primary btn-lg" data-act="scout" ${canRun?'':'disabled'}>▶ Run</button>`}
   </div>` +
-
   zone('out', 'Live results', '', `<div id="liveOut">${liveHTML()}</div>`) +
-
-  zone('in', 'Or check one signal you found', 'Paste a job post, Reddit thread, review or news item with its link.', `
-    <div class="field"><label for="pasteSig">Signal text and link</label>
-      <textarea id="pasteSig" rows="4" placeholder="https://job-boards.greenhouse.io/…&#10;Senior UX Researcher at Acme. You will own our research repository…"></textarea></div>
-    <div class="row"><button class="btn btn-outline" data-act="scorePaste" ${aiReady()?'':'disabled'}>Check this signal</button><span id="pasteStatus" class="status"></span></div>
-    <div id="pasteOut"></div>`);
+  fold('Already found a signal yourself? Check it', 'paste a post or job ad', `<div class="stack">
+    <textarea id="pasteSig" rows="4" aria-label="Signal text and link" placeholder="Paste the text and its link, e.g. a job post or Reddit thread"></textarea>
+    <div class="row"><button class="btn btn-outline" data-act="scorePaste" ${aiReady()?'':'disabled'}>Check it</button><span id="pasteStatus" class="status"></span></div>
+    <div id="pasteOut"></div></div>`);
 },
 
-accounts(){
+buyers(){
   const all = ranked();
   const f = S.filter;
   const list = all.filter(x => f==='all' || band(x.h.v)===f || x.a.seg===f);
   const sel = S.accounts.find(a=>a.id===S.sel && list.some(x=>x.a.id===a.id)) || (list[0]&&list[0].a);
+  if (sel) S.sel = sel.id;
   const counts = {hot:0,warm:0,watch:0}; all.forEach(x=>counts[band(x.h.v)]++);
-  return phead(4, 'Ranked buyers', 'Every organisation the scout kept, hottest first. Pick one to see why it scored, the evidence, and who to contact.',
-    `<button class="btn btn-ghost btn-sm" data-act="csv">Copy list as CSV</button>`) +
-  zone('in', 'Filter the list', '', `<div class="filters">${[['all','All '+all.length],['hot','Hot'],['warm','Warm'],['watch','Watch'],...S.business.segments.filter(g=>all.some(x=>x.a.seg===g.id)).map(g=>[g.id,g.name])].map(([k,l])=>`<button class="fbtn ${f===k?'on':''}" data-filter="${k}">${esc(l)}</button>`).join('')}</div>`) +
-  zone('out', `${list.length} buyer${list.length===1?'':'s'}`, '', `
-    <div class="kpis">
-      <div class="kpi"><i style="background:var(--hot)"></i><div><b>${counts.hot}</b><span>Hot · act this week</span></div></div>
-      <div class="kpi"><i style="background:var(--warm)"></i><div><b>${counts.warm}</b><span>Warm · nurture</span></div></div>
-      <div class="kpi"><i style="background:var(--watch)"></i><div><b>${counts.watch}</b><span>Watch</span></div></div>
-      <div class="kpi"><i style="background:var(--border-strong)"></i><div><b>${S.rejected.length}</b><span>Thrown out as noise</span></div></div>
+  return phead(3, 'Buyers', 'Hottest first. Pick one to see why it scored, the evidence, and the people to contact.',
+    `<button class="btn btn-ghost btn-sm" data-act="csv">Copy as CSV</button>`) +
+  `<div class="filters">${[['all','All '+all.length],['hot','Hot '+counts.hot],['warm','Warm '+counts.warm],['watch','Watch '+counts.watch],...S.business.segments.filter(g=>all.some(x=>x.a.seg===g.id)).map(g=>[g.id,g.name])].map(([k,l])=>`<button class="fbtn ${f===k?'on':''}" data-filter="${k}">${esc(l)}</button>`).join('')}</div>` +
+  (list.length?`<div class="split">
+    <div class="stack" style="gap:10px">${list.map(({a,h})=>`<button class="acc ${sel&&sel.id===a.id?'sel':''}" data-acc="${a.id}">
+      ${heatBox(h.v)}
+      <span style="min-width:0"><span class="row" style="justify-content:space-between"><h4>${esc(a.company)}</h4><span class="small muted">${(S.people[a.id]||[]).length?`${(S.people[a.id]||[]).length} people`:''}</span></span>
+        <span class="row" style="margin-top:5px;gap:4px">${segChip2(a.seg)}${h.distinct>=2?'<span class="chip c-red">'+h.distinct+' signals</span>':''}</span>
+        <p>${esc(a.why_now)}</p></span></button>`).join('')}
+      ${S.rejected.length?fold('Ignored as noise ('+S.rejected.length+')','why they were dropped', `<div class="stack" style="gap:8px">${S.rejected.map(r=>`<div class="reject"><s>${esc(r.company)}</s><span class="small">${esc(r.reason)}</span></div>`).join('')}</div>`):''}
     </div>
-    ${list.length?`<div class="split">
-      <div class="stack" style="gap:10px">${list.map(({a,h})=>`<button class="acc ${sel&&sel.id===a.id?'sel':''}" data-acc="${a.id}">
-        ${heatBox(h.v)}
-        <span style="min-width:0"><span class="row" style="justify-content:space-between"><h4>${esc(a.company)}</h4><span class="small muted">${esc(a.region||'')}</span></span>
-          <span class="row" style="margin-top:5px;gap:4px">${segChip2(a.seg)}${[...new Set(a.ev.map(e=>e.sid))].map(sigChip).join('')}${h.distinct>=2?'<span class="chip c-red">Stacked</span>':''}</span>
-          <p>${esc(a.why_now)}</p></span></button>`).join('')}
-        ${S.rejected.length?`<details><summary class="btn-link" style="cursor:pointer">Show what was thrown out as noise (${S.rejected.length})</summary>
-          <div class="stack" style="gap:8px;margin-top:10px">${S.rejected.map(r=>`<div class="reject"><div class="row"><s>${esc(r.company)}</s>${r.sid?sigChip(r.sid):''}</div><span class="small">${esc(r.reason)}</span>${r.url&&!String(r.url).startsWith('#')?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(host(r.url))}</a>`:''}</div>`).join('')}</div></details>`:''}
-      </div>
-      ${sel?accountDetail(sel):''}
-    </div>`:`<div class="empty"><h3>No buyers match this filter</h3><p>Choose "All", or run the scout in Step 3.</p><button class="btn btn-primary" data-go="scout">Go to Scout</button></div>`}`);
-},
-
-people(){
-  const opts = ranked();
-  const acc = S.accounts.find(a=>a.id===S.sel) || (opts[0]&&opts[0].a);
-  if (!acc) return phead(5,'Who to contact','Pick a buyer first.') + `<div class="empty"><h3>No buyer selected</h3><button class="btn btn-primary" data-go="accounts">Go to Accounts</button></div>`;
-  const ppl = S.people[acc.id] || [];
-  const g = segById(acc.seg) || {buyer:'Head of Research, Head of Design, Head of Product', user:'Researchers', name:''};
-  const roles = [...g.buyer.split(/,| or /).map(r=>({role:r.trim(), part:'Budget'})), {role:String(g.user).split(',')[0].trim(), part:'Champion (user)'}].filter(r=>r.role);
-  const missing = roles.filter(r => !ppl.some(x => x.title && r.role.toLowerCase().split(/[\/ ]+/).some(w=>w.length>4 && x.title.toLowerCase().includes(w))));
-  return phead(5, 'Who to contact', 'Real people only. Every name links to the page it was found on. Roles nobody was found for get a ready-made LinkedIn search.') +
-  zone('in', 'Choose a buyer', '', `<div class="row">
-      <select id="accPick" aria-label="Buyer">${opts.map(({a,h})=>`<option value="${a.id}" ${a.id===acc.id?'selected':''}>${esc(a.company)} · heat ${h.v}</option>`).join('')}</select>
-      ${ENV.backend?`<button class="btn btn-primary" data-act="findPeople" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Searching…':'Find people at '+esc(acc.company)}</button>`:''}
-      <span id="peopleStatus" class="status"></span></div>
-    <div class="small"><b>Budget sits with:</b> ${esc(g.buyer)} · <b>Daily users:</b> ${esc(g.user)}</div>
-    ${ENV.backend?'':`<div class="note info">${ICON.info}<span>In the deployed app, <b>Find people</b> reads ${esc(acc.domain||'the company website')} team pages and public LinkedIn results.</span></div>`}`) +
-  zone('out', ppl.length?`${ppl.length} people found at ${esc(acc.company)}`:`No named people yet at ${esc(acc.company)}`, '', `
-    ${ppl.length?`<div class="grid2">${ppl.map(p=>personCard(acc,p)).join('')}</div>`:''}
-    ${missing.length?`<div class="stack" style="gap:10px"><span class="label">Still to find</span><div class="grid2">${missing.map(p=>{const q=`${p.role.split('/')[0].trim()} ${acc.company}`;return `<div class="person"><span class="ava ghost">?</span><div class="stack" style="gap:6px">
-      <div class="row" style="justify-content:space-between"><h4>${esc(p.role)}</h4><span class="chip ${p.part.startsWith('Champion')?'role-champ':'role-budget'}">${esc(p.part)}</span></div>
-      <span class="small muted">${p.part==='Budget'?'Holds the budget for '+esc(g.name||'this segment')+'.':'Uses the product daily. Good for a warm intro, not for the deal.'}</span>
-      <div class="row"><a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}">Search LinkedIn</a>
-      <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent('site:linkedin.com/in "'+acc.company+'" '+p.role.split('/')[0].trim())}">Search Google</a></div></div></div>`;}).join('')}</div></div>`:''}`);
+    ${sel?accountDetail(sel):''}
+  </div>`:`<div class="empty"><h3>No buyers yet</h3><p>Run a search in Find buyers.</p><button class="btn btn-primary" data-go="find">Find buyers</button></div>`);
 },
 
 outreach(){
@@ -941,82 +884,73 @@ outreach(){
   const [aid, pname] = String(S.personSel||'').split('::');
   const acc = S.accounts.find(a=>a.id===aid); const person = (S.people[aid]||[]).find(p=>p.name===pname);
   const o = S.outreach[S.personSel];
-  return phead(6, 'What to send', 'A channel plan and ready-to-send messages for one person, written from the evidence that put their organisation on the list.') +
-  zone('in', 'Who are you writing to?', '', allPeople.length?`<div class="row">
-      <select id="personPick" aria-label="Person">${allPeople.map(x=>{const a=S.accounts.find(z=>z.id===x.aid);return `<option value="${esc(x.key)}" ${x.key===S.personSel?'selected':''}>${esc(x.p.name)} · ${esc(a?a.company:'')}${S.outreach[x.key]?' · written':''}</option>`;}).join('')}</select>
-      <div class="field" style="flex:1;min-width:200px"><input id="sender" type="text" value="${esc(S.settings.sender)}" data-set="sender" aria-label="Sign messages as" placeholder="Sign messages as"></div>
-      ${person?`<button class="btn btn-primary" data-act="write" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Writing…':o?'Rewrite messages':'Write messages'}</button>`:''}</div>
-      <span id="writeStatus" class="status"></span>${person&&!o?aiNote():''}`
-    :`<div class="empty"><h3>Find people first</h3><p>Named people from Step 5 appear here.</p><button class="btn btn-primary" data-go="people">Go to People</button></div>`) +
-  (o&&acc&&person ? outreachView(acc,person,o) : allPeople.length ? zone('out','Messages','', `<div class="empty"><h3>Nothing written for ${esc(pname||'this person')} yet</h3><p>Press "Write messages".</p></div>`) : '');
+  if (!allPeople.length) return phead(4,'Outreach','Messages are written for a named person.') + `<div class="empty"><h3>Pick a person first</h3><p>Open a buyer and find the people to contact.</p><button class="btn btn-primary" data-go="buyers">Go to Buyers</button></div>`;
+  return phead(4, 'Outreach', 'A day-by-day plan and ready-to-send messages, written from the evidence about their organisation.') +
+  zone('in', 'Who are you writing to?', '', `<div class="row">
+      <select id="personPick" aria-label="Person">${allPeople.map(x=>{const a=S.accounts.find(z=>z.id===x.aid);return `<option value="${esc(x.key)}" ${x.key===S.personSel?'selected':''}>${esc(x.p.name)} · ${esc(a?a.company:'')}${S.outreach[x.key]?' ✓':''}</option>`;}).join('')}</select>
+      ${person?`<button class="btn btn-primary" data-act="write" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Writing…':o?'Rewrite':'Write messages'}</button>`:''}
+      <span class="small muted">Signed as <button class="btn-link" data-act="editSender">${esc(S.settings.sender||'add your name')}</button></span></div>
+      <span id="writeStatus" class="status"></span>${!aiReady()&&!o?aiLine():''}`) +
+  (o&&acc&&person ? outreachView(acc,person,o) : `<div class="empty"><h3>Nothing written for ${esc(pname)} yet</h3><p>Press "Write messages".</p></div>`);
 },
 
-onepager(){
-  const b = S.business, top = ranked().slice(0,5), w = S.weights;
-  const live = ranked()[0];
-  return phead(7, esc(b.name)+' signal playbook', 'The one page to share with the sales team: who buys, what to watch, how to score it, and real signals found.',
-    `<div class="row"><button class="btn btn-primary" data-act="copyMd">Copy as Markdown</button><button class="btn btn-ghost" data-act="copyJson">Copy recipe JSON</button></div>`) +
+share(){
+  const b = S.business, top = ranked().slice(0,5), w = S.weights, live = ranked()[0];
+  return phead(5, esc(b.name)+' playbook', 'One page for the sales team: who buys, what to watch, how it is scored, and the buyers found.',
+    `<div class="row"><button class="btn btn-primary" data-act="copyMd">Copy as Markdown</button><button class="btn btn-ghost" data-act="copyJson">Copy as JSON</button></div>`) +
   zone('out', 'One-page playbook', '', `
     <div class="callout"><span class="label" style="color:var(--purple-ink)">A buyer is ready when</span><div style="margin-top:4px">${esc(b.trigger)}</div></div>
-    <div><span class="label">Who buys, by segment</span>
-      <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Segment</th><th>Buyer</th><th>How to sell</th></tr></thead>
-      <tbody>${b.segments.map(g=>`<tr><td><b style="color:var(--ink)">${esc(g.name)}</b></td><td>${esc(g.buyer)}</td><td class="muted">${esc(g.motion)}</td></tr>`).join('')}</tbody></table></div></div>
-    <div><span class="label">Signals to watch (${S.signals.filter(s=>s.on).length} on)</span>
-      <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>ID</th><th>Signal</th><th>Where</th><th>Lead time</th><th>Intent</th></tr></thead>
-      <tbody>${S.signals.filter(s=>s.on).map(s=>`<tr><td class="mono">${s.id}</td><td><b style="color:var(--ink)">${esc(s.name)}</b></td><td>${esc(SOURCES[s.src]||s.src)}</td><td>${esc(s.lead)}</td><td class="num">${s.intent}/5</td></tr>`).join('')}</tbody></table></div></div>
-    <div class="grid2">
-      <div class="stack" style="gap:8px"><span class="label">How we score</span><div class="formula">Heat = (${w.intent}·Intent + ${w.early}·Earliness + ${w.fit}·Fit + ${w.fresh}·Freshness) ÷ ${w.intent+w.early+w.fit+w.fresh} ÷ 5 × 100 · +${S.stack} per extra stacked signal<br>HOT 75+ · WARM 55–74 · WATCH below 55</div></div>
-      <div class="stack" style="gap:8px"><span class="label">Thrown out as noise</span><ol class="clean small">${S.noise.map(n=>`<li>${esc(n)}</li>`).join('')}</ol></div>
-    </div>
-    ${live?`<div class="stack" style="gap:8px"><span class="label">Real signal found ${S.source==='demo'?'(checked '+esc(S.runAt)+')':'live'}</span>
-      <div class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:14px">${heatBox(live.h.v)}
-      <div><b style="color:var(--ink);font-size:15px">${esc(live.a.company)}</b> <span class="muted small">${esc(live.a.region||'')}</span>
-      <p style="margin:4px 0">${esc(live.a.why_now)}</p>
-      ${live.a.ev.map(e=>`<div class="small">${sigChip(e.sid)} <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a></div>`).join('')}</div></div></div>`:''}
-    ${top.length>1?`<div><span class="label">Top buyers right now</span><ol class="clean" style="margin-top:8px">${top.map(({a,h})=>`<li><b style="color:var(--ink)">${esc(a.company)}</b> · ${h.v} · ${segChip2(a.seg)} <span class="small">${esc(a.why_now)}</span></li>`).join('')}</ol></div>`:''}`);
+    <div class="tbl-wrap"><table><thead><tr><th>Segment</th><th>Buyer</th><th>How to sell</th></tr></thead>
+      <tbody>${b.segments.map(g=>`<tr><td><b style="color:var(--ink)">${esc(g.name)}</b></td><td>${esc(g.buyer)}</td><td class="muted">${esc(g.motion)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Signal</th><th>Strength</th><th>Where</th><th>Lead time</th></tr></thead>
+      <tbody>${S.signals.filter(s=>s.on).map(s=>`<tr><td><b style="color:var(--ink)">${esc(s.name)}</b></td><td>${tierChip(s.tier)}</td><td>${esc(SOURCES[s.src]||s.src)}</td><td>${esc(s.lead||'')}</td></tr>`).join('')}</tbody></table></div>
+    <div class="formula">Heat = (${w.intent}·Intent + ${w.early}·Earliness + ${w.fit}·Fit + ${w.fresh}·Freshness) ÷ ${w.intent+w.early+w.fit+w.fresh} ÷ 5 × 100 · +${S.stack} per extra signal · HOT 75+ · WARM 55–74</div>
+    ${top.length?`<div><span class="label">Top buyers ${S.source==='demo'?'(checked '+esc(S.runAt)+')':'from your last run'}</span><div class="stack" style="gap:8px;margin-top:8px">${top.map(({a,h})=>`<div class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:12px">${heatBox(h.v)}<div><b style="color:var(--ink)">${esc(a.company)}</b> ${segChip2(a.seg)}<div class="small">${esc(a.why_now)}</div>${a.ev.slice(0,1).map(e=>String(e.url).startsWith('#')?'':`<a class="small" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)} ↗</a>`).join('')}</div></div>`).join('')}</div></div>`:''}`);
 }
 };
 
 function stepper(i, k, v){
-  return `<span class="stepper"><button data-act="dec" data-i="${i}" data-k="${k}" aria-label="Lower ${k}">−</button><span>${v}</span><button data-act="inc" data-i="${i}" data-k="${k}" aria-label="Raise ${k}">+</button></span>`;
+  return `<span class="stepper"><button data-act="dec" data-i="${i}" data-k="${k}" aria-label="Lower">−</button><span>${v}</span><button data-act="inc" data-i="${i}" data-k="${k}" aria-label="Raise">+</button></span>`;
 }
 
 function accountDetail(a){
-  const h = heat(a), p = h.parts || {};
-  const g = segById(a.seg);
-  return `<div class="detail stack" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+  const h = heat(a), p = h.parts || {}, g = segById(a.seg);
+  const ppl = S.people[a.id] || [];
+  const gg = g || {buyer:'Head of Research, Head of Design, Head of Product', user:'Researchers', name:''};
+  const roles = gg.buyer.split(/,| or /).map(r=>r.trim()).filter(Boolean);
+  const missing = roles.filter(r => !ppl.some(x => x.title && r.toLowerCase().split(/[\/ ]+/).some(w=>w.length>4 && x.title.toLowerCase().includes(w))));
+  return `<div class="detail stack">
     <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:nowrap">
       <div style="min-width:0"><h3 style="font-size:19px">${esc(a.company)}</h3>
-        <div class="small muted">${esc([a.region,a.size,a.domain].filter(Boolean).join(' · '))}</div></div>
+        <div class="small muted">${esc([a.region,a.size,g&&g.name].filter(Boolean).join(' · '))}</div></div>
       ${heatBox(h.v)}</div>
     <div class="why"><span class="label" style="color:var(--purple-ink)">Why now</span><div style="margin-top:3px">${esc(a.why_now)}</div></div>
-    ${g?`<div class="small"><b>Segment:</b> ${esc(g.name)} · <b>Budget:</b> ${esc(g.buyer)} · <span class="muted">${esc(g.motion)}</span></div>`:''}
     ${a.risk?`<div class="small"><b>Watch out:</b> ${esc(a.risk)}</div>`:''}
-    <div class="stack" style="gap:8px"><span class="label">Score: strongest signal ${h.best?esc(h.best.sid):''}${h.distinct>=2?' + '+(S.stack*Math.min(2,h.distinct-1))+' for '+h.distinct+' stacked signals':''}</span>
-      ${[['Intent',p.intent],['Earliness',p.early],['Fit',p.fit],['Freshness',p.fresh]].map(([l,v])=>`<div class="sbar"><span>${l}</span><span class="track"><span class="fill" style="width:${(v||0)*20}%"></span></span><span class="num mono">${Math.round((v||0)*10)/10}/5</span></div>`).join('')}</div>
-    <div class="sep"></div>
-    <span class="label">Evidence</span>
-    <div>${[...a.ev].sort((x,y)=>String(y.date).localeCompare(String(x.date))).map(e=>{const s=sigById(e.sid);const fs=freshScore(e.date);return `<div class="ev"><span class="pin" aria-hidden="true"></span><div>
-      <div class="row" style="gap:6px">${sigChip(e.sid)}<span class="small muted">${esc(s.name)} · ${esc(e.dateLabel||e.date||'date unknown')}</span>${fs===0?'<span class="chip c-grey">stale</span>':''}</div>
+
+    <div class="stack" style="gap:8px"><span class="label">People to contact</span>
+      ${ppl.map(p=>personRow(a,p)).join('') || `<span class="small muted">No named people yet.</span>`}
+      <div class="row">${ENV.backend?`<button class="btn btn-primary btn-sm" data-act="findPeople" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Searching…':'Find people at '+esc(a.company)}</button>`:''}<span id="peopleStatus" class="status"></span></div>
+      ${missing.length?`<div class="small muted">Still to find: ${missing.map(r=>`<a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(r.split('/')[0].trim()+' '+a.company)}" target="_blank" rel="noopener">${esc(r)}</a>`).join(' · ')} <span>(opens LinkedIn search)</span></div>`:''}
+    </div>
+
+    ${fold('Evidence ('+a.ev.length+')', 'where each signal was found', `<div>${[...a.ev].sort((x,y)=>String(y.date).localeCompare(String(x.date))).map(e=>{const s=sigById(e.sid);return `<div class="ev"><span class="pin" aria-hidden="true"></span><div>
+      <span class="small muted">${esc(s.name)} · ${esc(e.dateLabel||e.date||'date unknown')}</span>
       <h5>${esc(e.what)}</h5>
-      ${String(e.url).startsWith('#')?`<span class="small muted">${esc(e.title)}</span>`:`<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title||host(e.url))} ↗</a>`}</div></div>`;}).join('')}</div>
-    <div class="row"><button class="btn btn-primary" data-act="toPeople" data-id="${a.id}">Who to contact →</button>
-      <button class="btn btn-ghost btn-sm" data-act="dropAcc" data-id="${a.id}">Not a buyer</button></div>
+      ${String(e.url).startsWith('#')?`<span class="small muted">${esc(e.title)}</span>`:`<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title||host(e.url))} ↗</a>`}</div></div>`;}).join('')}</div>`, true)}
+    ${fold('Why '+h.v+'?', 'score breakdown', `<div class="stack" style="gap:8px">${[['Intent',p.intent],['Earliness',p.early],['Fit',p.fit],['Freshness',p.fresh]].map(([l,v])=>`<div class="sbar"><span>${l}</span><span class="track"><span class="fill" style="width:${(v||0)*20}%"></span></span><span class="num mono">${Math.round((v||0)*10)/10}/5</span></div>`).join('')}
+      ${h.distinct>=2?`<span class="small muted">+${S.stack*Math.min(2,h.distinct-1)} because ${h.distinct} different signals point at this buyer.</span>`:''}</div>`)}
+    <div class="row"><button class="btn btn-ghost btn-sm" data-act="dropAcc" data-id="${a.id}">Not a buyer</button></div>
   </div>`;
 }
 
-function personCard(acc, p){
+function personRow(acc, p){
   const key = acc.id+'::'+p.name;
   const cls = p.role==='Champion'?'role-champ':p.role==='Evaluator'?'role-eval':'role-budget';
   const li = p.linkedin || `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(p.name+' '+acc.company)}`;
-  return `<div class="person"><span class="ava">${esc(initials(p.name))}</span><div class="stack" style="gap:6px;min-width:0">
-    <div class="row" style="justify-content:space-between"><h4>${esc(p.name)}</h4><span class="chip ${cls}">${esc(p.role)}</span></div>
-    <span class="small" style="color:var(--ink)">${esc(p.title)}</span>
-    ${p.note?`<span class="small muted">${esc(p.note)}</span>`:''}
-    <span class="small">Found on <a href="${esc(p.source_url)}" target="_blank" rel="noopener">${esc(p.source||host(p.source_url))} ↗</a></span>
-    <div class="row"><button class="btn ${S.outreach[key]?'btn-ghost':'btn-primary'} btn-sm" data-act="toOutreach" data-key="${esc(key)}">${S.outreach[key]?'See messages':'Write messages'}</button>
-      <a class="btn btn-ghost btn-sm" href="${esc(li)}" target="_blank" rel="noopener">${p.linkedin?'LinkedIn profile':'Find on LinkedIn'}</a></div>
-  </div></div>`;
+  return `<div class="prow"><span class="ava">${esc(initials(p.name))}</span>
+    <div style="min-width:0"><div class="row" style="gap:6px"><b style="color:var(--ink)">${esc(p.name)}</b><span class="chip ${cls}">${esc(p.role)}</span></div>
+      <div class="small">${esc(p.title)} · <a href="${esc(p.source_url)}" target="_blank" rel="noopener">source ↗</a> · <a href="${esc(li)}" target="_blank" rel="noopener">LinkedIn ↗</a></div></div>
+    <button class="btn ${S.outreach[key]?'btn-ghost':'btn-primary'} btn-sm" data-act="toOutreach" data-key="${esc(key)}">${S.outreach[key]?'Messages':'Write'}</button></div>`;
 }
 
 function outreachView(acc, p, o){
@@ -1025,18 +959,17 @@ function outreachView(acc, p, o){
   const body = t==='email' ? `Subject: ${o.messages.email_subject}\n\n${o.messages.email_body}` : (o.messages[t]||'');
   const chars = t==='linkedin_invite' ? `${body.length} of 300 characters` : t==='email' ? `${o.messages.email_body.split(/\s+/).filter(Boolean).length} words` : '';
   return `<div class="split">` +
-  zone('out', 'The plan', `For ${esc(p.name)}, ${esc(p.title)} at ${esc(acc.company)}`, `
-      <div class="row"><span class="label">Start on</span><span class="chip c-b">${esc(o.plan.first)}</span><span class="small muted">${esc(o.plan.best_time||'')}</span></div>
-      <p class="small">${esc(o.plan.why)}</p>
-      <div class="seq">${(o.plan.sequence||[]).map(s=>`<div class="it"><span class="day">${esc(s.day)}</span><div><b style="color:var(--ink)">${esc(s.ch)}</b><div class="small">${esc(s.act)}</div></div></div>`).join('')}</div>
-      <div class="grid2"><div class="stack" style="gap:6px"><span class="label">Say</span><ul style="margin:0;padding-left:16px" class="small">${(o.points||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>
-        <div class="stack" style="gap:6px"><span class="label">Don't say</span><ul style="margin:0;padding-left:16px" class="small">${(o.avoid||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div></div>`) +
-  zone('out', 'Ready-to-send messages', 'Pick a channel, copy, send.', `
+  zone('out', 'Messages', `For ${esc(p.name)}, ${esc(p.title)} at ${esc(acc.company)}`, `
       <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab ${t===k?'on':''}" role="tab" aria-selected="${t===k}" data-tab="${k}">${l}</button>`).join('')}</div>
       <div class="msg" id="msgBody">${esc(body)}</div>
-      <div class="meta"><span>${esc(chars)}</span><span>Based on signals ${acc.ev.map(e=>e.sid).filter((v,i,a)=>a.indexOf(v)===i).join(', ')}</span></div>
-      <div class="row"><button class="btn btn-primary" data-act="copyMsg">Copy message</button>
+      <div class="meta"><span>${esc(chars)}</span></div>
+      <div class="row"><button class="btn btn-primary" data-act="copyMsg">Copy</button>
         ${t.startsWith('linkedin')?`<a class="btn btn-ghost" target="_blank" rel="noopener" href="${esc(p.linkedin||'https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent(p.name+' '+acc.company))}">Open LinkedIn ↗</a>`:''}</div>`) +
+  zone('out', 'Plan', `Start on ${esc(o.plan.first)}${o.plan.best_time?' · '+esc(o.plan.best_time):''}`, `
+      <p class="small">${esc(o.plan.why)}</p>
+      <div class="seq">${(o.plan.sequence||[]).map(s=>`<div class="it"><span class="day">${esc(s.day)}</span><div><b style="color:var(--ink)">${esc(s.ch)}</b><div class="small">${esc(s.act)}</div></div></div>`).join('')}</div>
+      ${fold('Say and don\'t say', '', `<div class="grid2"><ul style="margin:0;padding-left:16px" class="small">${(o.points||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+        <ul style="margin:0;padding-left:16px" class="small">${(o.avoid||[]).map(x=>`<li>Avoid: ${esc(x)}</li>`).join('')}</ul></div>`)}`) +
   `</div>`;
 }
 
@@ -1044,16 +977,32 @@ function helpModal(){
   $('#layer').innerHTML = `<div class="scrim" data-act="closeModal"><div class="modal">
     <h3 style="font-size:18px">How Who Buys Next works</h3>
     <ol class="clean">
-      <li><b>Product.</b> Confirm what you sell. You get a buyer map: who pays, who uses, how to sell.</li>
-      <li><b>Signals.</b> Pick the public moments that show a buyer is getting ready, and how strong each is.</li>
-      <li><b>Scout.</b> Search the web for organisations showing those signals, or check one you found.</li>
-      <li><b>Accounts.</b> Buyers ranked by heat, with the evidence and score behind each.</li>
-      <li><b>People.</b> Real, named decision makers with the page each name came from.</li>
-      <li><b>Outreach.</b> A day-by-day plan and messages for LinkedIn, email and communities.</li>
-      <li><b>Share.</b> The one-page playbook for the team.</li>
+      <li><b>Set up.</b> Connect AI once and confirm what you sell.</li>
+      <li><b>Find buyers.</b> Tick signals and press Run. Buyers appear live.</li>
+      <li><b>Buyers.</b> Ranked by heat. Open one for evidence and the people to contact.</li>
+      <li><b>Outreach.</b> A plan and messages for the person you pick.</li>
+      <li><b>Playbook.</b> One page to share with the team.</li>
     </ol>
-    <div class="row small"><span class="ztag in">${ICON.in}Your input</span> lavender, dashed: things you set. <span class="ztag out">${ICON.out}Result</span> white: what the platform produced.</div>
+    <div class="row small"><span class="ztag in">${ICON.in}Your input</span> things you set. <span class="ztag out">${ICON.out}Result</span> what the platform produced.</div>
     <div class="row" style="justify-content:flex-end"><button class="btn btn-primary" data-act="closeModal">Got it</button></div></div></div>`;
+}
+
+function settingsModal(){
+  const s = S.settings;
+  $('#layer').innerHTML = `<div class="scrim" data-act="closeModal"><form class="modal" id="setForm">
+    <div><h3 style="font-size:18px">Advanced settings</h3><p class="small muted" style="margin-top:4px">Your API key lives in Set up. These are optional.</p></div>
+    <div class="grid2"><div class="field"><label for="sProv">AI provider</label><select id="sProv" style="width:100%">${['auto','claude','gemini','groq','openai','openrouter'].map(p=>`<option ${s.provider===p?'selected':''}>${p}</option>`).join('')}</select><span class="hint">"auto" detects it from the key.</span></div>
+      <div class="field"><label for="sModel">Model</label><input id="sModel" type="text" value="${esc(s.model)}" placeholder="provider default"></div></div>
+    <div class="field"><label for="sSender">Sign messages as</label><input id="sSender" type="text" value="${esc(s.sender)}"></div>
+    <div class="row" style="justify-content:space-between;border-top:1px solid var(--border);padding-top:12px"><span class="small muted">Start over with the verified ResearchMind run.</span><button type="button" class="btn btn-ghost btn-sm" data-act="reset">Restore sample</button></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" data-act="closeModal">Cancel</button><button class="btn btn-primary" type="submit">Save</button></div>
+  </form></div>`;
+  $('#setForm').addEventListener('submit', e => {
+    e.preventDefault();
+    let prov = $('#sProv').value; if (prov==='auto' && S.settings.key) prov = guessKind(S.settings.key);
+    S.settings = {...S.settings, provider:prov, model:$('#sModel').value.trim(), sender:$('#sSender').value.trim()};
+    $('#layer').innerHTML=''; updatePill(); render(); toast('Saved');
+  });
 }
 
 /* ---------- Actions ---------- */
@@ -1061,14 +1010,14 @@ function log(t){ RUN.log.push(t); }
 function liveHTML(){
   if (!RUN.rows.length){
     return `<div class="empty"><h3>No scout run yet in this session</h3><p>Pick signals, add your key, and press Run scout. Buyers will appear here as they are found.</p>
-      ${ranked().length?`<button class="btn btn-ghost btn-sm" data-go="accounts">See the ${ranked().length} buyers already on your list</button>`:''}</div>`;
+      ${ranked().length?`<button class="btn btn-ghost btn-sm" data-go="buyers">See the ${ranked().length} buyers already on your list</button>`:''}</div>`;
   }
   const found = (RUN.found||[]).map(id => S.accounts.find(a=>a.id===id)).filter(Boolean).map(a=>({a, h:heat(a)})).sort((x,y)=>y.h.v-x.h.v);
   const done = RUN.rows.filter(r=>r.state==='ok'||r.state==='err').length;
   const pct = Math.round(done / RUN.rows.length * 100);
   return `<div class="stack">
     <div class="row" style="justify-content:space-between"><span class="small"><b style="color:var(--ink)">${done} of ${RUN.rows.length}</b> signals done · <b style="color:var(--ink)">${found.length}</b> buyers found · ${RUN.rejectedNow||0} thrown out as noise</span>
-      ${!RUN.busy&&found.length?`<button class="btn btn-primary btn-sm" data-go="accounts">Open ranked buyers →</button>`:''}</div>
+      ${!RUN.busy&&found.length?`<button class="btn btn-primary btn-sm" data-go="buyers">Open ranked buyers →</button>`:''}</div>
     <div class="prog" aria-label="${pct}% done"><span style="width:${pct}%"></span></div>
     ${found.length?`<div class="stack" style="gap:8px">${found.map(({a,h})=>{const e=a.ev[a.ev.length-1];return `<div class="lead new">
       ${heatBox(h.v)}<div style="min-width:0"><div class="row" style="justify-content:space-between"><b style="color:var(--ink);font-size:14.5px">${esc(a.company)}</b><span class="row" style="gap:4px">${segChip2(a.seg)}${[...new Set(a.ev.map(x=>x.sid))].map(sigChip).join('')}</span></div>
@@ -1213,7 +1162,7 @@ async function scorePaste(){
     const h = heat(a);
     out.innerHTML = `<div class="row" style="flex-wrap:nowrap;gap:12px;align-items:flex-start"><span class="heat h-${band(h.v)}">${h.v}<small>${BAND_LABEL[band(h.v)]}</small></span>
       <div><b style="color:var(--ink)">${esc(a.company)}</b> ${sigChip(r.sid)}<p class="small" style="margin:4px 0">${esc(r.why_now||r.what)}</p>
-      <button class="btn-link" data-go="accounts">Open in Accounts</button></div></div>`;
+      <button class="btn-link" data-go="buyers">Open in Accounts</button></div></div>`;
     save(); renderRail();
   } catch(e){ st.textContent = e.message||String(e); }
 }
@@ -1230,7 +1179,7 @@ async function buildProfile(){
     S.business = {...RM_BUSINESS, ...p, customers:[], sender:S.settings.sender, segments:(p.segments||[]).map(g=>({...g, value:+g.value||3})), competitors:p.competitors||[], pains:p.pains||[]};
     S.signals = p.signals.map((s,i)=>({id:s.id||'S'+(i+1), tier:s.tier||'B', on:true, src:SOURCES[s.src]?s.src:'web', name:s.name, why:s.why, query:s.query, segs:Array.isArray(s.segs)?s.segs:[], lead:s.lead||'', earliness:+s.earliness||3, intent:+s.intent||3, noise:s.noise||''}));
     S.noise = p.noise && p.noise.length ? p.noise : RM_NOISE;
-    S.accounts=[]; S.rejected=[]; S.people={}; S.outreach={}; S.source='live'; S.view='playbook';
+    S.accounts=[]; S.rejected=[]; S.people={}; S.outreach={}; S.source='live'; S.view='find';
     render(); toast('Playbook built');
   } catch(e){ st.textContent = e.message||String(e); }
 }
@@ -1245,30 +1194,6 @@ function toCSV(){
   return rows.map(r=>r.map(c=>'"'+String(c??'').replace(/"/g,'""')+'"').join(',')).join('\n');
 }
 
-function settingsModal(){
-  const s = S.settings;
-  $('#layer').innerHTML = `<div class="scrim" data-act="closeModal"><form class="modal" id="setForm">
-    <div><h3 style="font-size:18px">Settings</h3><p class="small" style="margin:4px 0 0">Paste your own API key here to run live scouts. Claude keys come from console.anthropic.com, free Gemini keys from aistudio.google.com.</p><p class="small muted" style="margin:4px 0 0">${ENV.backend?(ENV.serverAI?'A server key is set, so the team can run without their own key.':'No server key is set. Add your own key, or set GEMINI_API_KEY on Vercel.'):ENV.sample?'In this preview, AI steps use your Claude account. Keys apply to the deployed app.':'AI keys apply to the deployed app.'}</p></div>
-    <div class="field"><label for="sKey">AI key (stays in this browser)</label><input id="sKey" type="password" value="${esc(s.key)}" placeholder="sk-ant-…, AIza…, gsk_…, sk-…" autocomplete="off"></div>
-    <div class="grid2"><div class="field"><label for="sProv">Provider</label><select id="sProv">${['auto','claude','gemini','groq','openai','openrouter'].map(p=>`<option ${s.provider===p?'selected':''}>${p}</option>`).join('')}</select></div>
-      <div class="field"><label for="sModel">Model (optional)</label><input id="sModel" type="text" value="${esc(s.model)}" placeholder="provider default"></div></div>
-    <div class="field"><label for="sSearch">Web search</label><select id="sSearch" style="width:100%">
-      <option value="auto" ${(s.searchMode||'auto')==='auto'?'selected':''}>Free search first, your AI key's web search as backup (recommended)</option>
-      <option value="ai" ${s.searchMode==='ai'?'selected':''}>Always use your AI key's web search (Claude or Gemini, most reliable)</option>
-      <option value="free" ${s.searchMode==='free'?'selected':''}>Free search only (no AI search cost)</option></select>
-      <span class="hint">Claude and Gemini keys can search the web themselves. Other keys use free search only.</span></div>
-    <div class="field"><label for="sSender">Sign messages as</label><input id="sSender" type="text" value="${esc(s.sender)}"></div>
-    <div class="row" style="justify-content:space-between;border-top:1px solid var(--border);padding-top:12px"><span class="small muted">Start over with the verified ResearchMind run.</span><button type="button" class="btn btn-ghost btn-sm" data-act="reset">Restore sample</button></div>
-    <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" data-act="closeModal">Cancel</button><button class="btn btn-primary" type="submit">Save</button></div>
-  </form></div>`;
-  $('#setForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const key = $('#sKey').value.trim(); let prov = $('#sProv').value;
-    if (prov==='auto' && key) prov = guessKind(key);
-    S.settings = {...S.settings, key, provider:prov, model:$('#sModel').value.trim(), sender:$('#sSender').value.trim(), searchMode:$('#sSearch').value};
-    $('#layer').innerHTML=''; updatePill(); render(); toast('Saved');
-  });
-}
 function confirmReset(){
   $('#layer').innerHTML = `<div class="scrim" data-act="closeModal"><div class="modal">
     <h3 style="font-size:17px">Reset to the ResearchMind sample?</h3><p class="small" style="margin:0">Your playbook edits, scouted accounts, people and messages are replaced by the verified sample run. Your settings stay.</p>
@@ -1280,7 +1205,7 @@ document.addEventListener('click', e => {
   if (t.tagName==='SELECT') return;
   if (t.dataset.go){ S.view = t.dataset.go; render(); window.scrollTo(0,0); return; }
   if (t.dataset.acc){ S.sel = t.dataset.acc; render(); return; }
-  if (t.dataset.accOpen){ S.sel = t.dataset.accOpen; S.view='accounts'; S.filter='all'; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.accOpen){ S.sel = t.dataset.accOpen; S.view='buyers'; S.filter='all'; render(); window.scrollTo(0,0); return; }
   if (t.dataset.filter){ S.filter = t.dataset.filter; render(); return; }
   if (t.dataset.tab){ S.msgTab = t.dataset.tab; render(); return; }
   const a = t.dataset.act, i = +t.dataset.i;
@@ -1307,13 +1232,17 @@ document.addEventListener('click', e => {
       why:'Added by the sales team.', lead:'', earliness:tier==='A'?4:3, intent:tier==='A'?5:tier==='B'?4:3, noise:'Vendors, recruiters and anything older than 12 months.'});
     render(); toast('Signal added and selected');
   }
-  if (a==='saveKey'){ const k=$('#keyIn').value.trim(); if(!k){ toast('Paste a key first'); return; } S.settings.key=k; S.settings.provider=guessKind(k); updatePill(); render(); toast(ENV.backend?'Key saved':'Key saved. It is used on your deployed site.'); }
+  if (a==='editKey'){ S.editKey = true; render(); setTimeout(()=>{const k=$('#keyIn'); if(k) k.focus();},0); }
+  if (a==='cancelKey'){ S.editKey = false; render(); }
+  if (a==='editSig'){ S.editSig = S.editSig===i ? null : i; render(); }
+  if (a==='editSender') settingsModal();
+  if (a==='saveKey'){ S.editKey = false; const k=$('#keyIn').value.trim(); if(!k){ toast('Paste a key first'); return; } S.settings.key=k; S.settings.provider=guessKind(k); updatePill(); render(); toast(ENV.backend?'Key saved':'Key saved. It is used on your deployed site.'); }
   if (a==='clearKey'){ S.settings.key=''; S.settings.provider='auto'; updatePill(); render(); toast('Key removed'); }
   if (a==='findPeople') findPeople();
   if (a==='write') writeOutreach();
   if (a==='scorePaste') scorePaste();
   if (a==='buildProfile') buildProfile();
-  if (a==='toPeople'){ S.sel = t.dataset.id; S.view='people'; render(); window.scrollTo(0,0); }
+  if (a==='toPeople'){ S.sel = t.dataset.id; S.view='buyers'; render(); window.scrollTo(0,0); }
   if (a==='toOutreach'){ S.personSel = t.dataset.key; S.view='outreach'; S.msgTab='linkedin_invite'; render(); window.scrollTo(0,0); }
   if (a==='dropAcc'){ const ac=S.accounts.find(x=>x.id===t.dataset.id); if(ac){ S.rejected.unshift({company:ac.company, reason:'Marked as noise by sales.', url:(ac.ev[0]||{}).url}); S.accounts=S.accounts.filter(x=>x!==ac); S.sel=(ranked()[0]||{a:{}}).a.id; render(); } }
   if (a==='copyMsg') copy(($('#msgBody')||{}).textContent||'');

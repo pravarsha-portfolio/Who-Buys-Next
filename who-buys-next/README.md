@@ -47,11 +47,15 @@ Without a server key, anyone can paste their own key in **Settings**; it stays i
 
 ## Using it
 
-Seven steps across the top: Product, Signals, Scout, Accounts, People, Outreach, Share. Every screen has **Your input** zones (lavender, dashed: what you set) and **Result** zones (white: what the platform produced), and Back/Next buttons at the bottom.
+Five steps across the top:
 
-## Running a scout
+1. **Set up**: connect your API key once (saved in your browser) and confirm what you sell. You get the buyer map: who pays, who uses, how to sell.
+2. **Find buyers**: tick signals, optionally add your own, press **Run**. Buyers appear live. Search options and scoring weights sit in fold-outs.
+3. **Buyers**: ranked by heat. Open one for why-now, people to contact (with Find people), evidence and score.
+4. **Outreach**: pick a person, get a day-by-day plan and messages for LinkedIn, email and communities.
+5. **Playbook**: the one page to share with the team.
 
-Step 3 (Scout) has everything in one place: tick the signals to hunt (linked to Step 2), optionally add your own signal, paste your API key, and press **Run scout**. If you add nothing, it runs with the signals you selected. Buyers stream into **Live results** as each signal finishes, and you can stop a run at any time.
+Lavender dashed boxes are **your input**; white boxes are **results**.
 
 ## Files
 
