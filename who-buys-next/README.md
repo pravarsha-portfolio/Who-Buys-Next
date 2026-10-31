@@ -50,7 +50,7 @@ Without a server key, anyone can paste their own key in **Settings**; it stays i
 Five steps across the top:
 
 1. **Set up**: connect your API key once (saved in your browser) and confirm what you sell. You get the buyer map: who pays, who uses, how to sell.
-2. **Find buyers**: choose where to look (India + Global, India only, Global, or any other place), tick signals, use **Suggest new signals** or **Regenerate all** to update them with AI, optionally add your own, press **Run**. Buyers appear live. Search options and scoring weights sit in fold-outs.
+2. **Find buyers**: choose where to look (India + Global, India only, Global, or any other place), tick signals, use **Suggest new signals** or **Regenerate all** to update them with AI, optionally add your own, then press **Find buyers for N selected signals** at the end. Company profiles appear live, and the people to contact at each company fill in right after. Search options and scoring weights sit in fold-outs.
 3. **Buyers**: ranked by heat. Open one for why-now, people to contact (with Find people), evidence and score.
 4. **Outreach**: pick a person, get a day-by-day plan and messages for LinkedIn, email and communities.
 5. **Playbook**: the one page to share with the team.

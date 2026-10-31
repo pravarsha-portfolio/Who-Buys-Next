@@ -297,6 +297,13 @@ ol.clean{margin:0; padding-left:18px; display:grid; gap:6px}
 .seg-ctl button.on{background:var(--purple); color:#fff}
 .genbar{display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px; background:var(--card); border:1px solid var(--in-border); border-radius:10px}
 .genbar input{flex:1 1 260px; width:auto}
+/* ---------- Live buyer profiles ---------- */
+.profiles{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px}
+.profile{display:grid; gap:10px; align-content:start; padding:14px; border:1px solid var(--border); border-radius:12px; background:var(--card); box-shadow:var(--shadow)}
+@media (prefers-reduced-motion:no-preference){ .profile.new{animation:slidein .35s ease-out} }
+.ppl{display:grid; gap:6px; padding:10px; border-radius:10px; background:var(--surface); border:1px solid var(--border)}
+.ppl .prow{background:var(--card)}
+@media (max-width:900px){ .profiles{grid-template-columns:1fr} }
 </style>
 
 <header class="chrome">
@@ -826,10 +833,10 @@ setup(){
 find(){
   const busy = RUN.busy, on = S.signals.filter(s=>s.on), custom = S.signals.filter(s=>s.custom), live = ENV.backend;
   const canRun = live && aiReady() && on.length && !busy;
-  const why = !live ? 'Live search runs on your deployed site. This preview cannot reach the web.' : !aiReady() ? 'Connect AI in Set up to run.' : !on.length ? 'Pick at least one signal.' : 'About 30–90 seconds. Buyers appear below as they are found.';
+  const why = !live ? 'Live search runs on your deployed site. This preview cannot reach the web.' : !aiReady() ? 'Connect AI in Set up first.' : !on.length ? 'Pick at least one signal above.' : 'Takes 1–3 minutes. Results stream in below.';
   const w = S.weights;
   const tiers = [['A','Strong','They name the need'],['B','Good','Something changed that creates the need'],['C','Background','Context, watch only']];
-  return phead(2, 'Find buyers', 'Tick the signals to hunt, press Run, and watch buyers appear. Each signal is a public moment that shows someone is about to need '+esc(S.business.name)+'.') +
+  return phead(2, 'Find buyers', 'Choose where to look and which signals to hunt, then find buyers. Company profiles appear live, with the people to contact at each. Each signal is a public moment that shows someone is about to need '+esc(S.business.name)+'.') +
   aiLine() +
   zone('in', 'Where to look', 'Job boards, news, events and tenders are searched for this place. Reddit, GitHub and reviews are searched worldwide.', `
     <div class="seg-ctl" role="radiogroup" aria-label="Geography">${GEOS.map(([k,l])=>`<button role="radio" aria-checked="${(S.settings.geo||'india+global')===k}" class="${(S.settings.geo||'india+global')===k?'on':''}" data-act="geo" data-geo="${k}" ${busy?'disabled':''}>${l}</button>`).join('')}</div>
@@ -883,8 +890,9 @@ find(){
   `) +
   `<div class="runbar">
     <div><b style="color:var(--ink);font-size:15px">${busy?'Scouting '+RUN.rows.length+' signals in '+esc(geoLabel())+'…':on.length+' signal'+(on.length===1?'':'s')+' · '+esc(geoLabel())}</b>
-      <div class="small muted">${busy?'Buyers appear below as each signal finishes.':esc(why)}</div></div>
-    ${busy?`<button class="btn btn-ghost btn-lg" data-act="stopScout">Stop</button>`:`<button class="btn btn-primary btn-lg" data-act="scout" ${canRun?'':'disabled'}>▶ Run</button>`}
+      <div class="small muted">${busy?'Companies appear below as they are found, then the people at each one.':esc(why)}</div>
+      <label class="small" style="display:inline-flex;gap:6px;align-items:center;margin-top:4px;cursor:pointer"><input type="checkbox" data-act="autoPpl" ${S.settings.autoPeople!==false?'checked':''} ${busy?'disabled':''} style="accent-color:var(--purple)"> Also find the people at each company</label></div>
+    ${busy?`<button class="btn btn-ghost btn-lg" data-act="stopScout">Stop</button>`:`<button class="btn btn-primary btn-lg" data-act="scout" ${canRun?'':'disabled'}>Find buyers for ${on.length} selected signal${on.length===1?'':'s'} →</button>`}
   </div>` +
   zone('out', 'Live results', '', `<div id="liveOut">${liveHTML()}</div>`) +
   fold('Already found a signal yourself? Check it', 'paste a post or job ad', `<div class="stack">
@@ -1046,27 +1054,46 @@ function settingsModal(){
 function log(t){ RUN.log.push(t); }
 function liveHTML(){
   if (!RUN.rows.length){
-    return `<div class="empty"><h3>No scout run yet in this session</h3><p>Pick signals, add your key, and press Run scout. Buyers will appear here as they are found.</p>
+    return `<div class="empty"><h3>Buyer profiles will appear here</h3><p>Pick signals above, then press <b>Find buyers</b>. Each company shows up the moment it is found, followed by the people to contact there.</p>
       ${ranked().length?`<button class="btn btn-ghost btn-sm" data-go="buyers">See the ${ranked().length} buyers already on your list</button>`:''}</div>`;
   }
   const found = (RUN.found||[]).map(id => S.accounts.find(a=>a.id===id)).filter(Boolean).map(a=>({a, h:heat(a)})).sort((x,y)=>y.h.v-x.h.v);
   const done = RUN.rows.filter(r=>r.state==='ok'||r.state==='err').length;
-  const pct = Math.round(done / RUN.rows.length * 100);
+  const pplDone = Object.values(RUN.ppl||{}).filter(v=>v==='done'||v==='none'||v==='err').length, pplAll = Object.keys(RUN.ppl||{}).length;
+  const total = RUN.rows.length + pplAll, pct = total ? Math.round((done + pplDone) / total * 100) : 0;
+  const nPeople = found.reduce((n,{a})=>n+(S.people[a.id]||[]).length, 0);
   return `<div class="stack">
-    <div class="row" style="justify-content:space-between"><span class="small"><b style="color:var(--ink)">${done} of ${RUN.rows.length}</b> signals done · <b style="color:var(--ink)">${found.length}</b> buyers found · ${RUN.rejectedNow||0} thrown out as noise</span>
-      ${!RUN.busy&&found.length?`<button class="btn btn-primary btn-sm" data-go="buyers">Open ranked buyers →</button>`:''}</div>
+    <div class="row" style="justify-content:space-between"><span class="small"><b style="color:var(--ink)">${found.length}</b> buyer profiles · <b style="color:var(--ink)">${nPeople}</b> people · signals ${done}/${RUN.rows.length}${RUN.busy?'':' · finished'}</span>
+      ${!RUN.busy&&found.length?`<button class="btn btn-primary btn-sm" data-go="buyers">Open all buyers →</button>`:''}</div>
     <div class="prog" aria-label="${pct}% done"><span style="width:${pct}%"></span></div>
-    ${found.length?`<div class="stack" style="gap:8px">${found.map(({a,h})=>{const e=a.ev[a.ev.length-1];return `<div class="lead new">
-      ${heatBox(h.v)}<div style="min-width:0"><div class="row" style="justify-content:space-between"><b style="color:var(--ink);font-size:14.5px">${esc(a.company)}</b><span class="row" style="gap:4px">${segChip2(a.seg)}${[...new Set(a.ev.map(x=>x.sid))].map(sigChip).join('')}</span></div>
-      <div class="small" style="margin-top:2px">${esc(a.why_now||e.what)}</div>
-      <a class="small" href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title||host(e.url))} ↗</a></div>
-      <button class="btn btn-ghost btn-sm" data-acc-open="${a.id}">Details</button></div>`;}).join('')}</div>`
-      : `<div class="small muted">${RUN.busy?'Searching… the first buyers usually show up within 20 seconds.':'No buyers found this time. Try more signals, a wider region, or "AI web search only".'}</div>`}
-    <div class="runs">${RUN.rows.map(r=>{const s=sigById(r.id);return `<div class="run ${r.state||''}"><span class="st" aria-hidden="true"></span>
-      <div style="min-width:0"><div class="row" style="gap:6px">${sigChip(r.id)}<b style="color:var(--ink);font-size:13px">${esc(s.name)}</b></div><div class="small muted">${esc(SOURCES[s.src]||s.src)} · ${esc(r.note||'waiting')}</div></div>
+    ${found.length?`<div class="profiles">${found.map(({a,h})=>buyerProfile(a,h)).join('')}</div>`
+      : `<div class="small muted">${RUN.busy?'Searching… the first companies usually appear within 20–40 seconds.':'No buyers found this time. Try more signals, another place, or "AI web search only" in Search options.'}</div>`}
+    ${fold('Search progress by signal', done+' of '+RUN.rows.length+' done', `<div class="runs">${RUN.rows.map(r=>{const sg=sigById(r.id);return `<div class="run ${r.state||''}"><span class="st" aria-hidden="true"></span>
+      <div style="min-width:0"><b style="color:var(--ink);font-size:13px">${esc(sg.name)}</b><div class="small muted">${esc(SOURCES[sg.src]||sg.src)} · ${esc(r.note||'waiting')}</div></div>
       <span class="mono small">${r.leads!=null?r.leads+' kept':''}</span></div>`;}).join('')}</div>
-    ${RUN.log.length?`<details><summary class="btn-link" style="cursor:pointer">Show activity log</summary><div class="log" style="margin-top:8px">${RUN.log.slice(-60).map(l=>`<div>${esc(l)}</div>`).join('')}</div></details>`:''}
+      ${RUN.log.length?`<div class="log" style="margin-top:8px">${RUN.log.slice(-60).map(l=>`<div>${esc(l)}</div>`).join('')}</div>`:''}`)}
   </div>`;
+}
+function buyerProfile(a, h){
+  const g = segById(a.seg), ppl = S.people[a.id] || [], st = (RUN.ppl||{})[a.id];
+  const e = a.ev[a.ev.length-1] || {};
+  const roles = g ? g.buyer.split(/,| or /).map(r=>r.trim()).filter(Boolean).slice(0,3) : ['Head of Research'];
+  RUN.shown = RUN.shown || new Set(); const isNew = !RUN.shown.has(a.id); RUN.shown.add(a.id);
+  return `<article class="profile ${isNew?'new':''}">
+    <header class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:12px">${heatBox(h.v)}
+      <div style="min-width:0;flex:1"><div class="row" style="justify-content:space-between"><h4 style="font-size:16px">${esc(a.company)}</h4><span class="small muted">${esc(a.region||'')}</span></div>
+        <div class="row" style="gap:4px;margin-top:4px">${segChip2(a.seg)}${[...new Set(a.ev.map(x=>x.sid))].map(id=>`<span class="chip c-sig">${esc(sigById(id).name)}</span>`).join('')}</div></div></header>
+    <p class="small" style="color:var(--ink)">${esc(a.why_now||e.what||'')}</p>
+    ${e.url&&!String(e.url).startsWith('#')?`<a class="small" href="${esc(e.url)}" target="_blank" rel="noopener">Evidence: ${esc(e.title||host(e.url))} ↗</a>`:''}
+    <div class="ppl">
+      <div class="row" style="justify-content:space-between"><span class="label">People to contact</span>
+        ${st==='queued'?'<span class="status">Waiting…</span>':st==='searching'?'<span class="status busy">Finding people…</span>':''}</div>
+      ${ppl.length?ppl.slice(0,4).map(p=>personRow(a,p)).join('')+(ppl.length>4?`<span class="small muted">+${ppl.length-4} more in Buyers</span>`:''):
+        (st==='queued'||st==='searching') ? '' :
+        `<div class="small muted">${st?'No named people in public sources. Search for:':'Search for:'} ${roles.map(r=>`<a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(r+' '+a.company)}" target="_blank" rel="noopener">${esc(r)}</a>`).join(' · ')}</div>`}
+    </div>
+    <div class="row"><button class="btn btn-ghost btn-sm" data-acc-open="${a.id}">Open full profile</button></div>
+  </article>`;
 }
 function renderLive(){
   const el = document.getElementById('liveOut');
@@ -1095,7 +1122,7 @@ async function runScout(){
   if (RUN.busy) return;
   const on = S.signals.filter(s=>s.on);
   if (!on.length) return;
-  RUN = {busy:true, stop:false, rows:on.map(s=>({id:s.id, state:'', note:'waiting'})), log:[], found:[], rejectedNow:0};
+  RUN = {busy:true, stop:false, rows:on.map(s=>({id:s.id, state:'', note:'waiting'})), log:[], found:[], rejectedNow:0, ppl:{}, pplQueue:[], scoutDone:false};
   if (S.source==='demo'){ S.accounts=[]; S.rejected=[]; S.people={}; S.outreach={}; S.source='live'; }
   render(); log(`Hunting ${on.length} signals for ${S.business.name}…`);
   const queue = [...on];
@@ -1119,7 +1146,7 @@ async function runScout(){
           if (!urls.has(L.url)){ log(`${sig.id}: dropped "${L.company}", link not in results`); continue; }
           if (!L.date && urls.get(L.url).date) L.date = urls.get(L.url).date;
           const a = mergeLead(L, sig, urls.get(L.url).title);
-          if (a){ n++; if (!RUN.found.includes(a.id)) RUN.found.push(a.id); renderLive(); }
+          if (a){ n++; if (!RUN.found.includes(a.id)){ RUN.found.push(a.id); if (S.settings.autoPeople !== false && !(S.people[a.id]||[]).length){ RUN.ppl[a.id]='queued'; RUN.pplQueue.push(a.id); } } renderLive(); }
         }
         for (const N of (out.noise||[])){ S.rejected.push({company:N.company, sid:sig.id, reason:N.reason, url:N.url}); RUN.rejectedNow++; }
         setRow(sig.id, {state:'ok', note:n?'done':'done, nothing kept', leads:n}); log(`${sig.id}: ${n} leads kept, ${(out.noise||[]).length} rejected`);
@@ -1127,43 +1154,61 @@ async function runScout(){
       } catch(e){ setRow(sig.id, {state:'err', note:String(e.message||e).slice(0,90)}); log(`${sig.id}: ${e.message||e}`); }
     }
   }
+  async function peopleWorker(){
+    while (!RUN.stop && (!RUN.scoutDone || RUN.pplQueue.length)){
+      if (!RUN.pplQueue.length){ await new Promise(r=>setTimeout(r,300)); continue; }
+      // Hottest company first
+      RUN.pplQueue.sort((x,y)=>heat(S.accounts.find(a=>a.id===y)||{ev:[]}).v - heat(S.accounts.find(a=>a.id===x)||{ev:[]}).v);
+      const id = RUN.pplQueue.shift(), acc = S.accounts.find(a=>a.id===id); if (!acc) continue;
+      RUN.ppl[id] = 'searching'; renderLive();
+      try { const r = await peopleFor(acc); RUN.ppl[id] = r.kept ? 'done' : 'none'; log(`People at ${acc.company}: ${r.kept} found`); }
+      catch(e){ RUN.ppl[id] = 'err'; log(`People at ${acc.company}: ${e.message||e}`); }
+      save(); renderLive();
+    }
+  }
+  const pw = [peopleWorker(), peopleWorker()];
   await Promise.all([worker(), worker(), worker()]);
+  RUN.scoutDone = true;
+  await Promise.all(pw);
   RUN.rows.forEach(r => { if (!r.state || r.state==='busy') { r.state='err'; r.note='stopped'; } });
   RUN.busy = false; S.runAt = new Date().toISOString().slice(0,16).replace('T',' ');
   const top = ranked()[0]; if (top) S.sel = top.a.id;
   log(`Done. ${RUN.found.length} buyers found, ${RUN.rejectedNow} rejected.`); render();
 }
 
+/* Finds named decision makers at one company. Used live during a search and from the Buyers step. */
+async function peopleFor(acc, st){
+  st = st || (()=>{});
+  const g = segById(acc.seg);
+  const roleList = g ? g.buyer.split(/,| or /).map(r=>r.trim()).filter(Boolean).slice(0,5) : ['Head of Research','Head of Design','Head of Product','Founder'];
+  const roles = '(' + roleList.map(r=>'"'+r+'"').join(' OR ') + ')';
+  st('Searching public profiles and the company website…');
+  const [li, web] = await Promise.all([search(`"${acc.company}" ${roles}`, 'linkedin'), search(`${acc.company} leadership team ${acc.domain||''}`, 'web')]);
+  const sources = li.slice(0,10).map(r=>({title:r.title, url:r.url, text:r.title+'. '+r.content}));
+  const domain = acc.domain || (web.find(r=>r.url && !/linkedin|wikipedia|crunchbase|glassdoor|naukri|indeed|greenhouse|lever\.co|ashbyhq/.test(r.url))||{}).url;
+  if (domain){
+    const base = domain.startsWith('http') ? domain : 'https://'+domain;
+    const home = await readPage(base);
+    const links = (home.peopleLinks||[]).filter(l=>/team|about|leadership|people|founder/i.test(l.url+l.text)).slice(0,3);
+    if (!links.length) links.push({url:base.replace(/\/$/,'')+'/about'});
+    for (const l of links){ const pg = await readPage(l.url); if (pg.text) sources.push({title:pg.title||l.url, url:pg.url||l.url, text:pg.text}); }
+  }
+  for (const r of web.slice(0,4)) sources.push({title:r.title, url:r.url, text:r.title+'. '+r.content});
+  if (!sources.length) return {kept:0, dropped:0};
+  st(`Reading ${sources.length} sources…`);
+  const out = await ask(P.people(acc, S.business, sources));
+  const byUrl = new Map(sources.map(x=>[x.url, x]));
+  const kept = (out.people||[]).filter(p => { const x = byUrl.get(p.source_url); return x && x.text.toLowerCase().includes(String(p.name).split(' ')[0].toLowerCase()); })
+    .map(p => ({...p, source:host(p.source_url), linkedin: /linkedin\.com\/in\//.test(p.linkedin||p.source_url) ? (p.linkedin||p.source_url) : ''}));
+  const prev = S.people[acc.id] || [];
+  S.people[acc.id] = [...prev, ...kept.filter(k=>!prev.some(x=>x.name===k.name))];
+  return {kept:kept.length, dropped:(out.people||[]).length-kept.length};
+}
 async function findPeople(){
   const acc = S.accounts.find(a=>a.id===S.sel); if (!acc || RUN.busy) return;
   RUN.busy = true; render(); const st = m => { const el=$('#peopleStatus'); if(el) el.textContent=m; };
-  try {
-    st('Searching public profiles and the company website…');
-    const g = segById(acc.seg);
-    const roleList = g ? g.buyer.split(/,| or /).map(r=>r.trim()).filter(Boolean).slice(0,5) : ['Head of Research','Head of Design','Head of Product','Founder'];
-    const roles = '(' + roleList.map(r=>'"'+r+'"').join(' OR ') + ')';
-    const [li, web] = await Promise.all([search(`"${acc.company}" ${roles}`, 'linkedin'), search(`${acc.company} leadership team ${acc.domain||''}`, 'web')]);
-    const sources = li.slice(0,10).map(r=>({title:r.title, url:r.url, text:r.title+'. '+r.content}));
-    let domain = acc.domain || (web.find(r=>r.url && !/linkedin|wikipedia|crunchbase|glassdoor|naukri/.test(r.url))||{}).url;
-    if (domain){
-      const base = domain.startsWith('http') ? domain : 'https://'+domain;
-      const home = await readPage(base);
-      const links = (home.peopleLinks||[]).filter(l=>/team|about|leadership|people|founder/i.test(l.url+l.text)).slice(0,3);
-      if (!links.length) links.push({url:base.replace(/\/$/,'')+'/about'});
-      for (const l of links){ const pg = await readPage(l.url); if (pg.text) sources.push({title:pg.title||l.url, url:pg.url||l.url, text:pg.text}); }
-    }
-    for (const r of web.slice(0,4)) sources.push({title:r.title, url:r.url, text:r.title+'. '+r.content});
-    if (!sources.length){ st('No public sources found. Use the LinkedIn searches below.'); return; }
-    st(`Reading ${sources.length} sources…`);
-    const out = await ask(P.people(acc, S.business, sources));
-    const byUrl = new Map(sources.map(s=>[s.url, s]));
-    const kept = (out.people||[]).filter(p => { const s = byUrl.get(p.source_url); return s && s.text.toLowerCase().includes(String(p.name).split(' ')[0].toLowerCase()); })
-      .map(p => ({...p, source:host(p.source_url), linkedin: /linkedin\.com\/in\//.test(p.linkedin||p.source_url) ? (p.linkedin||p.source_url) : ''}));
-    const prev = S.people[acc.id] || [];
-    S.people[acc.id] = [...prev, ...kept.filter(k=>!prev.some(x=>x.name===k.name))];
-    st(`${kept.length} people verified against their sources${(out.people||[]).length>kept.length?`, ${(out.people||[]).length-kept.length} dropped because the name was not in the source`:''}.`);
-  } catch(e){ st(e.message||String(e)); }
-  finally { RUN.busy = false; render(); }
+  try { const r = await peopleFor(acc, st); RUN.busy=false; render(); st(r.kept ? `${r.kept} people verified against their sources.` : 'No named people found in public sources. Use the LinkedIn links.'); }
+  catch(e){ RUN.busy=false; render(); st(e.message||String(e)); }
 }
 
 async function writeOutreach(){
@@ -1293,6 +1338,7 @@ document.addEventListener('click', e => {
   }
   if (a==='editKey'){ S.editKey = true; render(); setTimeout(()=>{const k=$('#keyIn'); if(k) k.focus();},0); }
   if (a==='cancelKey'){ S.editKey = false; render(); }
+  if (a==='autoPpl'){ S.settings.autoPeople = t.checked; save(); }
   if (a==='geo'){ S.settings.geo = t.dataset.geo; S.settings.region = geoLabel(); render(); }
   if (a==='geoSave'){ S.settings.geoOther = $('#geoOther').value.trim(); S.settings.region = geoLabel(); render(); toast('Searching in '+geoLabel()); }
   if (a==='genMore') genSignals(false);
