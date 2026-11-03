@@ -311,6 +311,16 @@ ol.clean{margin:0; padding-left:18px; display:grid; gap:6px}
 .ppl{display:grid; gap:6px; padding:10px; border-radius:10px; background:var(--surface); border:1px solid var(--border)}
 .ppl .prow{background:var(--card)}
 @media (max-width:900px){ .profiles{grid-template-columns:1fr} }
+/* ---------- Mode choice ---------- */
+.modes{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px}
+.mode{display:grid; grid-template-columns:auto 1fr; gap:12px; align-items:start; text-align:left; padding:14px; border:1.5px solid var(--border-strong); border-radius:12px; background:var(--card); cursor:pointer; color:var(--body)}
+.mode:hover:not(:disabled){border-color:var(--purple)}
+.mode:disabled{opacity:.6; cursor:not-allowed}
+.mode b{color:var(--ink); font-size:15px}
+.mode.on{border-color:var(--purple); box-shadow:0 0 0 3px var(--purple-soft)}
+.mode-dot{width:18px; height:18px; border-radius:50%; border:2px solid var(--border-strong); margin-top:2px}
+.mode.on .mode-dot{border-color:var(--purple); box-shadow:inset 0 0 0 4px var(--card); background:var(--purple)}
+@media (max-width:760px){ .modes{grid-template-columns:1fr} }
 </style>
 
 <header class="chrome">
@@ -555,6 +565,26 @@ const DEMO = {
   }
 };
 
+/* Extra signals the demo "Suggest new signals" button adds (live mode asks the AI instead). */
+const DEMO_SUGGEST = [
+  {tier:'A', src:'web', segs:['inhouse','agency','mr'], name:'Teams recruiting many interview participants',
+   why:'A study recruiting 20+ participants means a pile of transcripts in a few weeks. The research lead is the buyer.',
+   query:'"we are recruiting" participants interview study UX research paid', lead:'1–4 wks', earliness:5, intent:4,
+   noise:'Academic surveys with no interviews; panel companies advertising themselves.'},
+  {tier:'B', src:'reviews', segs:['inhouse','agency','phd'], name:'Paying for interview transcription tools',
+   why:'Teams paying for Otter, Rev or Fireflies to transcribe interviews are one step before synthesis.',
+   query:'Otter OR Rev OR Fireflies review "user interviews" transcription research team', lead:'2–8 wks', earliness:4, intent:3,
+   noise:'Sales teams transcribing sales calls.'},
+  {tier:'B', src:'jobs', segs:['inhouse','mr'], name:'Research roles asking for multiple languages',
+   why:'Multilingual research doubles transcription and synthesis time, which ResearchMind cuts.',
+   query:'"UX Researcher" OR "Consumer Insights" Hindi OR Tamil OR multilingual interviews', lead:'4–12 wks', earliness:3, intent:4,
+   noise:'Translator and localisation roles.'},
+  {tier:'B', src:'news', segs:['uni'], name:'Design schools launching research courses',
+   why:'A new UX or design research programme brings a cohort that needs an analysis tool. The programme head is a partner.',
+   query:'design school launches UX research course OR programme 2026', lead:'4–16 wks', earliness:3, intent:3,
+   noise:'Online course marketplaces and bootcamp ads.'}
+];
+
 /* ---------- State ---------- */
 const KEY = 'whobuysnext.v4';
 const blank = () => ({
@@ -573,6 +603,18 @@ if (!S.weights || !S.signals) S = blank();
    If another product was loaded last time, ResearchMind's playbook and verified sample run come back. */
 if (S.business.name !== RM_BUSINESS.name){ const keep = S.settings; S = blank(); S.settings = keep; }
 S.view = 'setup';
+/* Every open starts in the ResearchMind demo, so anyone can explore without a key.
+   Live mode (your own API key) is one click away in Set up; a saved key is remembered. */
+S.mode = 'demo';
+function loadDemoData(){
+  S.business = JSON.parse(JSON.stringify(RM_BUSINESS));
+  S.signals = JSON.parse(JSON.stringify(RM_SIGNALS)); S.noise = [...RM_NOISE];
+  S.accounts = JSON.parse(JSON.stringify(DEMO.accounts)); S.rejected = JSON.parse(JSON.stringify(DEMO.rejected));
+  S.people = JSON.parse(JSON.stringify(DEMO.people)); S.outreach = JSON.parse(JSON.stringify(DEMO.outreach));
+  S.sel = 'emergent'; S.personSel = 'emergent::Mukund Jha'; S.filter = 'all'; S.runAt = DEMO.at; S.source = 'demo';
+}
+loadDemoData();
+const isDemo = () => S.mode !== 'live';
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e){} };
 
 const ENV = { backend:false, serverAI:false, serverSearch:false, sample:null, checked:false };
@@ -647,7 +689,8 @@ function parseJSON(t){
   try { return JSON.parse(cand); } catch(e){}
   return repairJSON(t);
 }
-const aiReady = () => (ENV.backend && (S.settings.key || ENV.serverAI)) || !!ENV.sample;
+const aiReady = () => !isDemo() && ENV.backend && !!(S.settings.key || ENV.serverAI);
+const canAct = () => isDemo() || aiReady();
 async function ask(prompt, tier){
   if (ENV.backend && (S.settings.key || ENV.serverAI)){
     const r = await fetch('api/ai', {method:'POST', headers:{'content-type':'application/json'},
@@ -671,7 +714,7 @@ async function ask(prompt, tier){
   throw new Error('No AI connected. Open Settings to add a key.');
 }
 const keyKind = () => S.settings.key ? (S.settings.provider==='auto' ? guessKind(S.settings.key) : S.settings.provider) : '';
-const aiSearchReady = () => ENV.backend && (['claude','gemini'].includes(keyKind()) || ENV.serverSearch);
+const aiSearchReady = () => !isDemo() && ENV.backend && (['claude','gemini'].includes(keyKind()) || ENV.serverSearch);
 async function freeSearch(q, src){
   try { const r = await fetch(`api/search?src=${encodeURIComponent(src)}&q=${encodeURIComponent(q)}`); if (!r.ok) return []; return (await r.json()).results || []; } catch(e){ return []; }
 }
@@ -853,31 +896,40 @@ const sigChip = id => { const s = sigById(id); return `<span class="chip c-sig" 
 const segChip2 = id => { const g = segById(id); return g ? `<span class="chip c-seg">${esc(g.name)}</span>` : ''; };
 const valueDots = v => `<span class="value" aria-label="Value ${v} of 5">${[1,2,3,4,5].map(i=>`<i class="${i<=v?'on':''}"></i>`).join('')}</span>`;
 const heatBox = v => `<span class="heat h-${band(v)}">${v}<small>${BAND_LABEL[band(v)]}</small></span>`;
-const keyName = () => S.settings.key ? (({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[keyKind()]||'API')+' key' : ENV.serverAI ? 'Team key' : ENV.sample ? 'Claude (preview)' : '';
+const keyName = () => S.settings.key ? (({claude:'Claude',gemini:'Gemini',groq:'Groq',openai:'OpenAI',openrouter:'OpenRouter'})[keyKind()]||'API')+' key' : ENV.serverAI ? 'Team key' : '';
 /* One line used on every step after Set up, instead of repeating the key form. */
-const aiLine = () => aiReady()
+const aiLine = () => isDemo()
+  ? `<div class="note info">${ICON.info}<span><b>Demo mode.</b> Searches replay a verified ResearchMind run from ${esc(DEMO.at)}, so results are real but not refreshed. For real-time search, switch to Live in Set up.</span></div>`
+  : aiReady()
   ? `<div class="ailine"><span class="chip role-champ">✓ AI connected</span><span class="small muted">${esc(keyName())}${aiSearchReady()?' · web search on':''}</span></div>`
   : `<div class="note">${ICON.info}<span><b>Connect AI first.</b> It takes one paste in Set up, and is used on every step.</span><button class="btn btn-primary btn-sm" data-go="setup" style="margin-left:auto">Connect AI</button></div>`;
 
 const VIEWS = {
 setup(){
-  const b = S.business, kk = keyKind();
+  const b = S.business, kk = keyKind(), demo = isDemo();
   const connected = !!S.settings.key && !S.editKey;
   const keyBody = connected
-    ? `<div class="row" style="justify-content:space-between"><span class="row"><span class="chip role-champ">✓ ${esc(keyName())} connected</span><span class="small muted">${['claude','gemini'].includes(kk)?'Used for playbooks, reading results, messages and web search.':'Used for playbooks, reading results and messages.'} Saved in this browser, so you only do this once.</span></span>
+    ? `<div class="row" style="justify-content:space-between"><span class="row"><span class="chip role-champ">✓ ${esc(keyName())} connected</span><span class="small muted">${['claude','gemini'].includes(kk)?'Used for playbooks, reading results, messages and web search.':'Used for playbooks, reading results and messages.'} Saved in this browser.</span></span>
         <span class="row"><button class="btn btn-ghost btn-sm" data-act="editKey">Change</button><button class="btn btn-ghost btn-sm" data-act="clearKey">Remove</button></span></div>`
     : `<div class="row" style="flex-wrap:nowrap"><input id="keyIn" type="password" autocomplete="off" placeholder="Paste a Gemini key (AIza…, free) or Claude key (sk-ant-…)" aria-label="API key" value="${esc(S.settings.key)}">
         <button class="btn btn-primary" data-act="saveKey">Connect</button>${S.editKey?'<button class="btn btn-ghost" data-act="cancelKey">Cancel</button>':''}</div>
-       <span class="small muted">${ENV.serverAI?'A team key is already set on the server, so this is optional.':ENV.sample?'This preview already uses Claude. Your key is for the live site, where web search works.':'No key yet? Get a free one at aistudio.google.com (Gemini) or console.anthropic.com (Claude).'}</span>`;
-  return phead(1, 'Set up', 'Two things, once: connect AI, and confirm what you sell. Everything after this uses them automatically.') +
-  zone('in', '1 · Connect AI', '', keyBody) +
-  zone('in', '2 · What you sell', 'ResearchMind is loaded. Type another product or website to build a fresh playbook for it.', `
+       <span class="small muted">${ENV.serverAI?'A team key is already set on the server, so this is optional.':'No key yet? Get a free one at aistudio.google.com (Gemini) or console.anthropic.com (Claude).'}</span>`;
+  const modeCard = (id, title, sub, chip, dis) => `<button class="mode ${S.mode===id||(id==='demo'&&demo)?'on':''}" data-act="mode" data-mode="${id}" role="radio" aria-checked="${S.mode===id||(id==='demo'&&demo)}" ${dis?'disabled':''}>
+      <span class="mode-dot" aria-hidden="true"></span><span style="min-width:0"><b>${title}</b>${chip}<span class="small" style="display:block;margin-top:3px">${sub}</span></span></button>`;
+  return phead(1, 'Set up', demo ? 'You are exploring the ResearchMind demo. Every step works with a real run checked on 31 Oct 2026, no key needed. Press Next to start.' : 'Live mode: connect your API key once, then search the web in real time for ResearchMind or any other product.') +
+  zone('in', 'How do you want to explore?', '', `<div class="modes" role="radiogroup" aria-label="Mode">
+      ${modeCard('demo','ResearchMind demo','Explore every step with a verified run: buyers, people and messages. Nothing to set up.','<span class="chip role-champ" style="margin-left:6px">No key needed</span>', false)}
+      ${modeCard('live','Live with your own API key','Search the web in real time, for ResearchMind or any other product.', ENV.backend?'<span class="chip c-b" style="margin-left:6px">Real-time</span>':'<span class="chip c-grey" style="margin-left:6px">On the deployed site</span>', !ENV.backend)}
+    </div>
+    ${!ENV.backend?`<span class="small muted">This preview runs the demo only. Live mode works on your deployed site (who-buys-next.vercel.app).</span>`:''}
+    ${!demo?`<div class="stack" style="gap:8px;margin-top:4px"><span class="label">Your API key</span>${keyBody}</div>`:''}`) +
+  zone('in', 'What you sell', demo ? 'The demo is set up for ResearchMind. Switch to Live to build a playbook for another product.' : 'ResearchMind is loaded. Type another product or website to build a fresh playbook for it.', `
     <div class="card-in prod"><span class="mark">${esc(initials(b.name))}</span>
       <div style="min-width:0"><b style="color:var(--ink);font-size:15px">${esc(b.name)}</b><div class="small">${esc(b.one_liner)}</div></div>
       <span class="chip c-b">Active</span></div>
-    <div class="row" style="flex-wrap:nowrap"><input id="bizIn" type="text" placeholder="Optional: another product or website" aria-label="Another product or website">
-      <button class="btn btn-outline" data-act="buildProfile" ${aiReady()?'':'disabled'} title="${aiReady()?'':'Connect AI first'}">Build playbook</button></div>
-    <div id="bizStatus" class="status"></div>`) +
+    ${demo ? '' : `<div class="row" style="flex-wrap:nowrap"><input id="bizIn" type="text" placeholder="Optional: another product or website" aria-label="Another product or website">
+      <button class="btn btn-outline" data-act="buildProfile" ${aiReady()?'':'disabled'} title="${aiReady()?'':'Connect your key first'}">Build playbook</button></div>
+    <div id="bizStatus" class="status"></div>`}`) +
   zone('out', 'Who buys it', esc(b.trigger), `
     <div class="grid3">${b.segments.map(g=>`<div class="seg">
       <div class="row" style="justify-content:space-between"><h4>${esc(g.name)}</h4>${valueDots(g.value)}</div>
@@ -891,8 +943,8 @@ setup(){
 
 find(){
   const busy = RUN.busy, on = S.signals.filter(s=>s.on), custom = S.signals.filter(s=>s.custom), live = ENV.backend;
-  const canRun = live && aiReady() && on.length && !busy;
-  const why = !live ? 'Live search runs on your deployed site. This preview cannot reach the web.' : !aiReady() ? 'Connect AI in Set up first.' : !on.length ? 'Pick at least one signal above.' : 'Takes 1–3 minutes. Results stream in below.';
+  const canRun = on.length && !busy && (isDemo() || (live && aiReady()));
+  const why = !on.length ? 'Pick at least one signal above.' : isDemo() ? 'Demo: replays the verified run in about 10 seconds.' : !aiReady() ? 'Connect your API key in Set up first.' : 'Takes 1–3 minutes. Results stream in below.';
   const w = S.weights;
   const tiers = [['A','Strong','They name the need'],['B','Good','Something changed that creates the need'],['C','Background','Context, watch only']];
   return phead(2, 'Find buyers', 'Choose where to look and which signals to hunt, then find buyers. Company profiles appear live, with the people to contact at each. Each signal is a public moment that shows someone is about to need '+esc(S.business.name)+'.') +
@@ -903,9 +955,9 @@ find(){
   zone('in', 'Pick signals', '', `
     <div class="genbar"><span class="small" style="font-weight:650;color:var(--ink)">✨ Update signals with AI</span>
       <input id="genFocus" type="text" placeholder="Optional focus, e.g. universities, market research agencies, Southeast Asia" aria-label="Focus for new signals">
-      <button class="btn btn-outline btn-sm" data-act="genMore" ${aiReady()&&!busy?'':'disabled'}>Suggest new signals</button>
-      <button class="btn btn-ghost btn-sm" data-act="genAll" ${aiReady()&&!busy?'':'disabled'}>Regenerate all</button>
-      <span id="genStatus" class="status" style="flex-basis:100%">${aiReady()?'"Suggest" adds new ideas next to your list. "Regenerate" replaces the built-in signals but keeps the ones you added.':'Connect AI in Set up to generate signals.'}</span></div>
+      <button class="btn btn-outline btn-sm" data-act="genMore" ${canAct()&&!busy?'':'disabled'}>Suggest new signals</button>
+      ${isDemo()?'':`<button class="btn btn-ghost btn-sm" data-act="genAll" ${aiReady()&&!busy?'':'disabled'}>Regenerate all</button>`}
+      <span id="genStatus" class="status" style="flex-basis:100%">${isDemo()?'In the demo, "Suggest" adds four extra ideas. In Live mode the AI writes new ones for your focus and geography.':aiReady()?'"Suggest" adds new ideas next to your list. "Regenerate" replaces the built-in signals but keeps the ones you added.':'Connect your key in Set up to generate signals.'}</span></div>
     <div class="row"><button class="btn btn-ghost btn-sm" data-act="pickA">Strong only</button><button class="btn btn-ghost btn-sm" data-act="pickAll">All</button><button class="btn btn-ghost btn-sm" data-act="pickNone">None</button>
       <span class="small muted" style="margin-left:auto"><b style="color:var(--ink)">${on.length}</b> of ${S.signals.length} picked</span></div>
     ${tiers.map(([t,h,d])=>{ const list = S.signals.map((s,i)=>({s,i})).filter(x=>x.s.tier===t); if (!list.length) return '';
@@ -956,7 +1008,7 @@ find(){
   zone('out', 'Live results', '', `<div id="liveOut">${liveHTML()}</div>`) +
   fold('Already found a signal yourself? Check it', 'paste a post or job ad', `<div class="stack">
     <textarea id="pasteSig" rows="4" aria-label="Signal text and link" placeholder="Paste the text and its link, e.g. a job post or Reddit thread"></textarea>
-    <div class="row"><button class="btn btn-outline" data-act="scorePaste" ${aiReady()?'':'disabled'}>Check it</button><span id="pasteStatus" class="status"></span></div>
+    <div class="row"><button class="btn btn-outline" data-act="scorePaste" ${aiReady()?'':'disabled'}>Check it</button><span id="pasteStatus" class="status">${aiReady()?'':'Available in Live mode.'}</span></div>
     <div id="pasteOut"></div></div>`);
 },
 
@@ -992,9 +1044,9 @@ outreach(){
   return phead(4, 'Outreach', 'A day-by-day plan and ready-to-send messages, written from the evidence about their organisation.') +
   zone('in', 'Who are you writing to?', '', `<div class="row">
       <select id="personPick" aria-label="Person">${allPeople.map(x=>{const a=S.accounts.find(z=>z.id===x.aid);return `<option value="${esc(x.key)}" ${x.key===S.personSel?'selected':''}>${esc(x.p.name)} · ${esc(a?a.company:'')}${S.outreach[x.key]?' ✓':''}</option>`;}).join('')}</select>
-      ${person?`<button class="btn btn-primary" data-act="write" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Writing…':o?'Rewrite':'Write messages'}</button>`:''}
+      ${person?`<button class="btn btn-primary" data-act="write" ${canAct()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Writing…':o?'Rewrite':'Write messages'}</button>`:''}
       <span class="small muted">Signed as <button class="btn-link" data-act="editSender">${esc(S.settings.sender||'add your name')}</button></span></div>
-      <span id="writeStatus" class="status"></span>${!aiReady()&&!o?aiLine():''}`) +
+      <span id="writeStatus" class="status"></span>${!canAct()&&!o?aiLine():''}`) +
   (o&&acc&&person ? outreachView(acc,person,o) : `<div class="empty"><h3>Nothing written for ${esc(pname)} yet</h3><p>Press "Write messages".</p></div>`);
 },
 
@@ -1033,7 +1085,7 @@ function accountDetail(a){
 
     <div class="stack" style="gap:8px"><span class="label">People to contact</span>
       ${ppl.map(p=>personRow(a,p)).join('') || `<span class="small muted">No named people yet.</span>`}
-      <div class="row">${ENV.backend?`<button class="btn btn-primary btn-sm" data-act="findPeople" ${aiReady()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Searching…':'Find people at '+esc(a.company)}</button>`:''}<span id="peopleStatus" class="status"></span></div>
+      <div class="row">${(isDemo()||ENV.backend)?`<button class="btn btn-primary btn-sm" data-act="findPeople" ${canAct()&&!RUN.busy?'':'disabled'}>${RUN.busy?'Searching…':'Find people at '+esc(a.company)}</button>`:''}<span id="peopleStatus" class="status"></span></div>
       ${missing.length?`<div class="small muted">Still to find: ${missing.map(r=>`<a href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(r.split('/')[0].trim()+' '+a.company)}" target="_blank" rel="noopener">${esc(r)}</a>`).join(' · ')} <span>(opens LinkedIn search)</span></div>`:''}
     </div>
 
@@ -1066,7 +1118,7 @@ function outreachView(acc, p, o){
   zone('out', 'Messages', `For ${esc(p.name)}, ${esc(p.title)} at ${esc(acc.company)}`, `
       <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button class="tab ${t===k?'on':''}" role="tab" aria-selected="${t===k}" data-tab="${k}">${l}</button>`).join('')}</div>
       <div class="msg" id="msgBody">${esc(body)}</div>
-      <div class="meta"><span>${esc(chars)}</span></div>
+      <div class="meta"><span>${esc(chars)}</span>${o.demo?'<span>Demo template built from the evidence. Live mode writes it with AI.</span>':''}</div>
       <div class="row"><button class="btn btn-primary" data-act="copyMsg">Copy</button>
         ${t.startsWith('linkedin')?`<a class="btn btn-ghost" target="_blank" rel="noopener" href="${esc(p.linkedin||'https://www.linkedin.com/search/results/people/?keywords='+encodeURIComponent(p.name+' '+acc.company))}">Open LinkedIn ↗</a>`:''}</div>`) +
   zone('out', 'Plan', `Start on ${esc(o.plan.first)}${o.plan.best_time?' · '+esc(o.plan.best_time):''}`, `
@@ -1172,7 +1224,7 @@ function buyerProfile(a, h){
 }
 function renderLive(){
   const el = document.getElementById('liveOut');
-  if (el && S.view==='scout') el.innerHTML = liveHTML();
+  if (el && S.view==='find') el.innerHTML = liveHTML();
   renderRail();
 }
 function setRow(id, patch){ const r = RUN.rows.find(x=>x.id===id); if (r) Object.assign(r, patch); renderLive(); }
@@ -1193,7 +1245,44 @@ function mergeLead(L, sig, sourceTitle){
   return a;
 }
 
+async function runDemo(){
+  const on = S.signals.filter(s=>s.on); if (!on.length) return;
+  const onIds = new Set(on.map(s=>s.id));
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  RUN = {busy:true, stop:false, demo:true, rows:on.map(s=>({id:s.id, state:'', note:'waiting'})), log:[], found:[], rejectedNow:0, ppl:{}, pplQueue:[], scoutDone:false};
+  S.accounts = []; S.people = {}; S.rejected = []; S.outreach = JSON.parse(JSON.stringify(DEMO.outreach)); S.source = 'demo';
+  render(); log('Demo: replaying the verified ResearchMind run from '+DEMO.at+'.');
+  async function peopleWorker(){
+    while (!RUN.stop && (!RUN.scoutDone || RUN.pplQueue.length)){
+      if (!RUN.pplQueue.length){ await sleep(200); continue; }
+      const id = RUN.pplQueue.shift(); RUN.ppl[id] = 'searching'; renderLive();
+      await sleep(900 + Math.random()*700);
+      S.people[id] = JSON.parse(JSON.stringify(DEMO.people[id]||[]));
+      RUN.ppl[id] = S.people[id].length ? 'done' : 'none'; renderLive();
+    }
+  }
+  const pw = peopleWorker();
+  for (const sig of on){
+    if (RUN.stop) break;
+    setRow(sig.id, {state:'busy', note:'searching '+(SOURCES[sig.src]||sig.src)});
+    await sleep(700 + Math.random()*600);
+    let n = 0;
+    for (const da of DEMO.accounts.filter(a=>a.ev.some(e=>e.sid===sig.id))){
+      if (S.accounts.some(x=>x.id===da.id)) continue;
+      const a = JSON.parse(JSON.stringify(da)); a.ev = a.ev.filter(e=>onIds.has(e.sid));
+      S.accounts.push(a); RUN.found.push(a.id); RUN.ppl[a.id] = 'queued'; RUN.pplQueue.push(a.id); n++;
+    }
+    for (const r of DEMO.rejected.filter(r=>r.sid===sig.id)){ S.rejected.push(JSON.parse(JSON.stringify(r))); RUN.rejectedNow++; }
+    setRow(sig.id, {state:'ok', note: n ? 'done' : (DEMO.accounts.some(a=>a.ev.some(e=>e.sid===sig.id)) ? 'done' : 'no matches in the demo run'), leads:n});
+  }
+  RUN.scoutDone = true; await pw;
+  RUN.rows.forEach(r => { if (!r.state || r.state==='busy'){ r.state='err'; r.note='stopped'; } });
+  RUN.busy = false; const top = ranked()[0]; if (top) S.sel = top.a.id;
+  render();
+}
+
 async function runScout(){
+  if (isDemo()) return runDemo();
   if (RUN.busy) return;
   const on = S.signals.filter(s=>s.on);
   if (!on.length) return;
@@ -1282,8 +1371,46 @@ async function peopleFor(acc, st){
 async function findPeople(){
   const acc = S.accounts.find(a=>a.id===S.sel); if (!acc || RUN.busy) return;
   RUN.busy = true; render(); const st = m => { const el=$('#peopleStatus'); if(el) el.textContent=m; };
+  if (isDemo()){
+    await new Promise(r=>setTimeout(r,800));
+    const demo = JSON.parse(JSON.stringify(DEMO.people[acc.id]||[])); const prev = S.people[acc.id]||[];
+    S.people[acc.id] = [...prev, ...demo.filter(d=>!prev.some(x=>x.name===d.name))];
+    RUN.busy=false; render(); st(demo.length ? `${demo.length} people from the verified run.` : 'The demo run has no named people here. Use the LinkedIn links, or switch to Live in Set up.'); return;
+  }
   try { const r = await peopleFor(acc, st); RUN.busy=false; render(); st(r.kept ? `${r.kept} people verified against their sources.` : 'No named people found in public sources. Use the LinkedIn links.'); }
   catch(e){ RUN.busy=false; render(); st(e.message||String(e)); }
+}
+
+/* Demo mode: a message plan built from the account's real evidence, no AI involved. */
+function templateOutreach(acc, p){
+  const first = String(p.name).replace(/^(Dr|Prof)\.?\s+/i,'').split(' ')[0];
+  const e = [...acc.ev].sort((a,b)=>(b.intent||0)-(a.intent||0))[0] || {};
+  const g = segById(acc.seg) || {};
+  const uni = acc.seg==='uni' || acc.seg==='gov';
+  const hook = String(e.what||acc.why_now||'').replace(/\.$/,'');
+  const sender = (S.settings.sender||'ResearchMind').split(',')[0];
+  const ask = uni ? 'Would free access for your next cohort be useful?' : 'Worth a 15-minute look?';
+  const why = uni ? 'The step after interviews is usually the hardest for scholars: coding transcripts into themes they can defend.'
+                  : 'That usually means more interviews to synthesise, and synthesis is where research teams lose the most time.';
+  const offer = uni ? 'We would like to offer free access to your students for one study, and a short hands-on session.'
+                    : 'We can run it on 5 of your own interviews, free, so you see the result before deciding.';
+  const invite = `Hi ${first}, I saw this at ${acc.company}: ${hook.slice(0,140)}. I work on ResearchMind, which turns interview transcripts into evidence-backed insights. Happy to connect?`.slice(0,298);
+  return {demo:true,
+    plan:{first: uni ? 'Email' : 'LinkedIn', why: uni ? 'Academic contacts work from institutional email and answer offers that help students.' : 'Short LinkedIn notes that mention their own news get read; cold email comes second.',
+      best_time:'Tue–Thu mornings', sequence:[
+        {day:'Day 0', ch: uni?'Email':'LinkedIn', act: uni?'Email the offer, referencing the evidence.':'Connection note referencing the evidence.'},
+        {day:'Day 3', ch: uni?'LinkedIn':'LinkedIn', act: uni?'Connect with a short note.':'If accepted, one-line DM with a 2-minute demo.'},
+        {day:'Day 6', ch: uni?'Email':'Email', act:'Short follow-up with one yes/no question.'},
+        {day:'Day 12', ch:'Email', act:'Last note with the free trial offer.'}]},
+    messages:{
+      linkedin_invite: invite,
+      linkedin_followup: `Thanks for connecting, ${first}. ${why} ResearchMind clusters interviews into themes and keeps the quote behind every insight. ${ask}`,
+      email_subject: uni ? `Free analysis tool access for ${acc.company} scholars` : `Interview synthesis at ${acc.company}`,
+      email_body: `Hi ${first},\n\nI saw this at ${acc.company}: ${hook}.\n\n${why}\n\nResearchMind turns interview transcripts into clustered insights, with a confidence score and the exact quotes behind each one, so ${uni?'scholars can defend their analysis':'your team gets to decisions in days, not weeks'}.\n\n${offer}\n\n${ask}\n\n${sender}\nResearchMind`,
+      community: uni ? 'Share a short, practical guide on coding interview transcripts in groups where their students are active. Mention the tool only when asked.'
+                     : 'Comment on their next product or research post with a specific observation. No pitch.'},
+    points:['Open with their news, not the product','The quote behind every insight, so AI output is trusted', uni?'Free for the cohort first':'Free run on their own interviews'],
+    avoid:['Feature lists','Pricing in the first message','Generic "AI-powered" claims']};
 }
 
 async function writeOutreach(){
@@ -1291,6 +1418,11 @@ async function writeOutreach(){
   const acc = S.accounts.find(a=>a.id===aid), p = (S.people[aid]||[]).find(x=>x.name===pname);
   if (!acc || !p || RUN.busy) return;
   RUN.busy = true; render(); const el = $('#writeStatus'); if (el) el.textContent = 'Writing from the evidence…';
+  if (isDemo()){
+    await new Promise(r=>setTimeout(r,700));
+    S.outreach[S.personSel] = DEMO.outreach[S.personSel] ? JSON.parse(JSON.stringify(DEMO.outreach[S.personSel])) : templateOutreach(acc, p);
+    S.msgTab = 'linkedin_invite'; RUN.busy = false; render(); return;
+  }
   try {
     const o = await ask(P.outreach(acc, p, S.business));
     if (!o.messages) throw new Error('The AI reply had no messages. Try again.');
@@ -1326,6 +1458,15 @@ async function scorePaste(){
 async function genSignals(replace){
   const st = $('#genStatus'), focus = ($('#genFocus')||{}).value || '';
   st.className = 'status busy'; st.textContent = replace ? 'Writing a fresh set of signals…' : 'Looking for signals you are not watching yet…';
+  if (isDemo()){
+    await new Promise(r=>setTimeout(r,900));
+    const have = new Set(S.signals.map(x=>x.name.toLowerCase()));
+    const add = DEMO_SUGGEST.filter(x=>!have.has(x.name.toLowerCase()));
+    S.signals.forEach(x => delete x.fresh);
+    let n = S.signals.filter(x=>/^N\d+$/.test(x.id)).length;
+    add.forEach(x => S.signals.push({...JSON.parse(JSON.stringify(x)), id:'N'+(++n), on:true, fresh:true}));
+    render(); toast(add.length ? add.length+' new signals added' : 'All demo suggestions are already on your list'); return;
+  }
   try {
     const out = await ask(P.newSignals(S.business, S.signals, focus.trim(), replace), 'complex');
     const list = (out.signals||[]).filter(x => x && x.name && x.query);
@@ -1427,6 +1568,14 @@ document.addEventListener('click', e => {
       why:'Added by the sales team.', lead:'', earliness:tier==='A'?4:3, intent:tier==='A'?5:tier==='B'?4:3, noise:'Vendors, recruiters and anything older than 12 months.'});
     render(); toast('Signal added and selected');
   }
+  if (a==='mode'){
+    const m = t.dataset.mode; if (m === S.mode || RUN.busy) return;
+    if (m === 'live' && !ENV.backend){ toast('Live mode runs on the deployed site'); return; }
+    S.mode = m; RUN = {busy:false, rows:[], log:[]};
+    if (m === 'demo'){ loadDemoData(); toast('Back to the ResearchMind demo'); }
+    else { toast(aiReady() ? 'Live mode on' : 'Live mode: connect your key below'); }
+    updatePill(); render(); return;
+  }
   if (a==='editKey'){ S.editKey = true; render(); setTimeout(()=>{const k=$('#keyIn'); if(k) k.focus();},0); }
   if (a==='cancelKey'){ S.editKey = false; render(); }
   if (a==='autoPpl'){ S.settings.autoPeople = t.checked; save(); }
@@ -1471,9 +1620,8 @@ document.addEventListener('focusout', e => {
 
 function updatePill(){
   const el = $('#modePill');
-  if (ENV.backend){ el.className='pill p-live'; el.innerHTML='<span class="dot"></span>Live'+(aiReady()?(aiSearchReady()?' · search + AI':' · AI ready'):' · add your API key'); }
-  else if (ENV.sample){ el.className='pill p-ai'; el.innerHTML='<span class="dot"></span>Preview · AI via Claude'; }
-  else { el.className='pill p-demo'; el.innerHTML='<span class="dot"></span>Verified sample run'; }
+  if (isDemo()){ el.className='pill p-ai'; el.innerHTML='<span class="dot"></span>Demo · ResearchMind'; }
+  else { el.className='pill p-live'; el.innerHTML='<span class="dot"></span>Live'+(aiReady()?(aiSearchReady()?' · search + AI':' · AI ready'):' · add your API key'); }
 }
 
 (async function boot(){
@@ -1483,9 +1631,6 @@ function updatePill(){
     const r = await fetch('api/ok', {signal:ctl.signal}); clearTimeout(tm);
     if (r.ok){ const j = await r.json(); if (j.ok){ ENV.backend = true; ENV.serverAI = Object.values(j.providers||{}).some(Boolean); ENV.serverSearch = !!(j.providers && (j.providers.claude || j.providers.gemini)); } }
   } catch(e){}
-  if (!ENV.backend && window.claude && typeof window.claude.use === 'function'){
-    try { ENV.sample = await window.claude.use('sample'); } catch(e){ ENV.sample = null; }
-  }
   updatePill(); render();
 })();
 </script>

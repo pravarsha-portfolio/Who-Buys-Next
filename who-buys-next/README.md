@@ -45,6 +45,12 @@ Without a server key, anyone can paste their own key in **Settings**; it stays i
 
 **Real-time search with your own key.** Free search (Google News, Bing, Reddit, HN, GitHub) runs first. A Claude or Gemini key adds the provider's own web search as a backup, or as the only source if you pick "Always use your AI key's web search" in Settings. This is the most reliable option, because search engines often block scraping from cloud servers.
 
+## Demo and Live modes
+
+The site always opens in the **ResearchMind demo**. No key is needed: every step works with a verified run checked on 31 Oct 2026. "Find buyers" replays that run with buyers and people appearing live, "Suggest new signals" adds four prepared ideas, and messages are built from each buyer's evidence.
+
+To search the web in real time, or to run it for another product, choose **Live with your own API key** in Set up and paste a Gemini or Claude key. The key is remembered in your browser.
+
 ## Using it
 
 Five steps across the top:
